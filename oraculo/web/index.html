@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Oráculo B3</title>
+<style>
+:root {
+  --bg: #f6f7f9; --surface: #ffffff; --surface-2: #f0f2f5; --border: #dfe3e8; --text: #16191d; --muted: #5d6670;
+  --accent: #1f5fbf; --accent-text: #ffffff; --pos: #157a3d; --neg: #b3261e; --warn-bg: #fff4d6; --warn-text: #6b4e00;
+  --radius: 10px; --shadow: 0 1px 2px rgba(16,24,40,.06);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1215; --surface: #171b20; --surface-2: #1e242b; --border: #2b333c; --text: #e8ecf0; --muted: #9aa5b1;
+    --accent: #5b9bf0; --accent-text: #0b1220; --pos: #4cc27a; --neg: #f07167; --warn-bg: #3a2f10; --warn-text: #f5d58a;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1215; --surface: #171b20; --surface-2: #1e242b; --border: #2b333c; --text: #e8ecf0; --muted: #9aa5b1;
+  --accent: #5b9bf0; --accent-text: #0b1220; --pos: #4cc27a; --neg: #f07167; --warn-bg: #3a2f10; --warn-text: #f5d58a;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--border); background: var(--surface); position: sticky; top: 0; z-index: 2; }
+header h1 { font-size: 18px; margin: 0; white-space: nowrap; }
+header { flex-wrap: wrap; }
+.badge { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--surface-2); color: var(--muted); border: 1px solid var(--border); }
+.badge.warn { background: var(--warn-bg); color: var(--warn-text); border-color: transparent; }
+.layout { display: grid; grid-template-columns: 240px 1fr; min-height: calc(100vh - 57px); }
+nav { border-right: 1px solid var(--border); padding: 12px; background: var(--surface); }
+nav button { display: block; width: 100%; text-align: left; padding: 8px 10px; margin-bottom: 2px; border: 0; border-radius: 8px; background: none; color: var(--text); font: inherit; cursor: pointer; }
+nav button:hover { background: var(--surface-2); }
+nav button.active { background: var(--accent); color: var(--accent-text); }
+nav .sep { font-size: 12px; color: var(--muted); margin: 14px 10px 6px; text-transform: uppercase; letter-spacing: .04em; }
+main { padding: 20px; max-width: 1100px; width: 100%; min-width: 0; }
+.layout > * { min-width: 0; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; box-shadow: var(--shadow); }
+.card h2 { font-size: 17px; margin: 0 0 4px; }
+.card h3 { font-size: 15px; margin: 0 0 8px; }
+.muted { color: var(--muted); }
+form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; align-items: end; }
+label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+input, select, textarea { font: inherit; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); color: var(--text); width: 100%; }
+textarea { min-height: 90px; font-family: ui-monospace, monospace; font-size: 13px; }
+.full { grid-column: 1 / -1; }
+.btn { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-text); cursor: pointer; }
+.btn.secondary { background: transparent; color: var(--accent); }
+.btn:disabled { opacity: .6; cursor: wait; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; font-size: 13px; }
+.scroll { overflow-x: auto; }
+.pos { color: var(--pos); } .neg { color: var(--neg); }
+.notice { background: var(--warn-bg); color: var(--warn-text); padding: 10px 12px; border-radius: 8px; margin-bottom: 12px; }
+.err { color: var(--neg); white-space: pre-wrap; }
+pre { background: var(--surface-2); padding: 12px; border-radius: 8px; overflow: auto; font-size: 12px; max-height: 420px; }
+details summary { cursor: pointer; color: var(--muted); }
+.committee-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.committee { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+.member .icon { font-size: 18px; } .member b { display: block; margin-top: 4px; } .member ul { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
+.conclusion { margin-top: 12px; }
+.report h1 { font-size: 20px; } .report h2 { font-size: 16px; margin-top: 18px; } .report blockquote { margin: 8px 0; padding: 8px 12px; background: var(--warn-bg); color: var(--warn-text); border-radius: 8px; }
+.pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--border); }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; }
+@media (max-width: 760px) {
+  .layout { grid-template-columns: 1fr; }
+  nav { border-right: 0; border-bottom: 1px solid var(--border); display: flex; overflow-x: auto; gap: 4px; padding: 8px 16px; }
+  nav button { white-space: nowrap; width: auto; margin: 0; }
+  nav .sep { display: none; }
+  main { padding: 16px; }
+  .committee { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Oráculo B3</h1>
+  <span class="badge" id="ver"></span>
+  <span class="badge warn" id="demo" hidden>DEMONSTRAÇÃO · dados sintéticos</span>
+</header>
+<div class="layout">
+  <nav id="nav"></nav>
+  <main id="main"></main>
+</div>
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const pct = (x, d = 1) => x == null ? "n/d" : (x * 100).toFixed(d).replace(".", ",") + "%";
+const num = (x, d = 2) => x == null ? "n/d" : Number(x).toLocaleString("pt-BR", {maximumFractionDigits: d, minimumFractionDigits: d});
+let INFO = {};
+
+async function api(path, body, method) {
+  const r = await fetch(path, {method: method || (body ? "POST" : "GET"), headers: {"Content-Type": "application/json"}, body: body ? JSON.stringify(body) : undefined});
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.detail || r.statusText);
+  return j;
+}
+
+function md(text) {
+  const lines = esc(text).split("\n"); let html = "", inList = false;
+  const inline = s => s.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>").replace(/\*(.+?)\*/g, "<i>$1</i>");
+  for (const l of lines) {
+    if (/^- /.test(l)) { if (!inList) { html += "<ul>"; inList = true; } html += `<li>${inline(l.slice(2))}</li>`; continue; }
+    if (inList) { html += "</ul>"; inList = false; }
+    if (/^### /.test(l)) html += `<h3>${inline(l.slice(4))}</h3>`;
+    else if (/^## /.test(l)) html += `<h2>${inline(l.slice(3))}</h2>`;
+    else if (/^# /.test(l)) html += `<h1>${inline(l.slice(2))}</h1>`;
+    else if (/^&gt; /.test(l)) html += `<blockquote>${inline(l.slice(5))}</blockquote>`;
+    else if (/^---$/.test(l)) html += "<hr>";
+    else if (l.trim()) html += `<p>${inline(l)}</p>`;
+  }
+  return html + (inList ? "</ul>" : "");
+}
+
+function table(rows, cols) {
+  if (!rows || !rows.length) return '<p class="muted">Sem dados.</p>';
+  cols = cols || Object.keys(rows[0]);
+  return `<div class="scroll"><table><thead><tr>${cols.map(c => `<th>${esc(c[1] || c)}</th>`).join("")}</tr></thead><tbody>` +
+    rows.map(r => `<tr>${cols.map(c => { const k = Array.isArray(c) ? c[0] : c; const f = Array.isArray(c) && c[2]; const v = r[k];
+      return `<td>${f ? f(v, r) : esc(typeof v === "object" && v !== null ? JSON.stringify(v) : v)}</td>`; }).join("")}</tr>`).join("") + "</tbody></table></div>";
+}
+
+const raw = obj => `<details><summary>Ver dados completos (JSON)</summary><pre>${esc(JSON.stringify(obj, null, 2))}</pre></details>`;
+
+function committeeCard(c, finalConclusion) {
+  if (!c) return "";
+  const [bull, bear, aud] = c.membros;
+  const list = a => a.length ? `<ul>${a.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : '<p class="muted">Nenhum argumento.</p>';
+  const rejected = (c.revisoes_auditor || []).filter(r => r.peso === 0);
+  return `<div class="card"><div class="committee-head"><h2>Comitê de Investimentos</h2>${c.dados_sinteticos ? '<span class="badge warn">dados sintéticos</span>' : ""}</div>
+  <div class="committee">
+    <div class="member"><span class="icon pos">↗</span><b>Otimista</b><span class="muted">${esc(bull.foco)}</span>${list(bull.argumentos)}<p class="muted">Peso validado: ${num(bull.peso_validado)}</p></div>
+    <div class="member"><span class="icon neg">↘</span><b>Pessimista</b><span class="muted">${esc(bear.foco)}</span>${list(bear.argumentos)}<p class="muted">Peso validado: ${num(bear.peso_validado)}</p></div>
+    <div class="member"><span class="icon">⚖</span><b>Auditor</b><span class="muted">${esc(aud.foco)}</span>
+      <ul><li>${aud.aceitos} argumento(s) aceito(s)</li><li>${aud.rejeitados} rejeitado(s)</li>${rejected.slice(0, 3).map(r => `<li class="muted">${esc(r.argumento)}: ${esc(r.observacoes.join("; "))}</li>`).join("")}</ul></div>
+  </div>
+  <p class="conclusion"><b>Conclusão do comitê:</b> ${esc(c.texto_conclusao)}</p>
+  ${finalConclusion ? `<p class="muted">Conclusão final do Diretor de Inteligência: <b>${esc(finalConclusion)}</b></p>` : ""}
+  <p class="muted" style="font-size:13px">${esc(c.independencia)}</p></div>`;
+}
+
+function errors(r) {
+  const e = [...(r.falhas_coleta || [])];
+  return e.length ? `<div class="notice">Falhas de coleta (nenhum valor foi estimado no lugar): ${esc(e.join(" · "))}</div>` : "";
+}
+
+const SECTORS = ["bancos","seguros","varejo","construcao_civil","shopping","saneamento","tecnologia","educacao","petroleo_gas","aviacao","logistica","quimica","papel_celulose","mineracao","frigorificos","agronegocio","siderurgia"];
+
+const VIEWS = {
+  monitoramento: {
+    title: "1 · Monitoramento contínuo",
+    form: `<label class="full">Ativos (vazio = ativos acompanhados)<input name="tickers" placeholder="PETR4, VALE3"></label>
+      <label>Intervalo automático (s)<input name="intervalo_segundos" type="number" value="900"></label>
+      <div class="row full"><button class="btn" data-acao="ciclo">Executar ciclo</button><button class="btn secondary" data-acao="iniciar">Iniciar automático</button>
+      <button class="btn secondary" data-acao="parar">Parar</button><button class="btn secondary" data-acao="status">Status</button></div>`,
+    params: f => ({tickers: splitList(f.tickers.value), intervalo_segundos: +f.intervalo_segundos.value}),
+    render: r => r.status ? `<div class="card">${raw(r)}</div>` : `${errors(r)}<div class="card"><h3>Alertas</h3>${table(r.alertas, [["tipo","Tipo"],["mensagem","Mensagem"]])}</div>
+      <div class="card"><h3>Ativos</h3>${table(r.ativos, [["ticker","Ativo"],["preco","Preço",v=>num(v)],["data","Data"],["z_retorno","z",v=>num(v)],["material","Material",v=>v?"sim":"não"],["atrasado","Atrasado",v=>v?"sim":"não"],["fonte","Fonte"]])}
+      <p class="muted">${esc(r.politica)}</p></div>${raw(r)}`,
+  },
+  analise_profunda: {
+    title: "2 · Análise profunda",
+    form: `<label>Ação<input name="ticker" value="PETR4" required></label>
+      <label>Setor<select name="setor"><option value="">(não informado)</option>${SECTORS.map(s => `<option>${s}</option>`).join("")}</select></label>
+      <label>Horizonte (pregões)<input name="horizonte" type="number" value="5"></label>
+      <label class="full">Dados adicionais (JSON opcional: financials, financials_source, valuation, pares, noticias, eventos_geopoliticos)<textarea name="extra" placeholder='{"financials_source": "CVM ITR 2T26", "financials": {"receita": 100, ...}}'></textarea></label>
+      <div class="full"><button class="btn">Analisar</button></div>`,
+    params: f => ({ticker: f.ticker.value, setor: f.setor.value || undefined, horizonte: +f.horizonte.value, ...(f.extra.value.trim() ? JSON.parse(f.extra.value) : {})}),
+    render: r => r.erro ? `<div class="card err">${esc(r.erro)}</div>${raw(r)}` :
+      `${committeeCard(r.comite, r.conclusao)}<div class="card report">${r.relatorio_markdown ? md(r.relatorio_markdown) : `<p class="err">Relatório bloqueado pelo Compliance: ${esc(JSON.stringify(r.relatorio_bloqueado_motivo))}</p>`}</div>
+      <div class="card"><h3>Execução das 7 etapas</h3>${table(Object.entries(r.etapas).map(([k, v]) => ({etapa: k, resumo: v.resumo || v.modelo_producao || v.publicado || v.analise_id || ""})))}</div>${raw(r)}`,
+  },
+  cacador_oportunidades: {
+    title: "3 · Caçador de oportunidades",
+    form: `<label class="full">Universo (vazio = padrão)<input name="universo" placeholder="PETR4, VALE3, ITUB4"></label>
+      <label>Liquidez mínima (R$/dia)<input name="liq" type="number" value="10000000"></label><div><button class="btn">Buscar</button></div>`,
+    params: f => ({universo: splitList(f.universo.value), liquidez_minima_brl: +f.liq.value}),
+    render: r => `${errors(r)}<div class="card"><h3>Ranking</h3><p class="muted">${esc(r.metodologia || "")}</p>
+      ${table(r.ranking, [["posicao","#"],["ticker","Ativo"],["pontuacao","Pontuação",v=>num(v)],["explicacao","Explicação"],["liquidez_brl","Liquidez/dia",v=>"R$ "+num(v/1e6,1)+" mi"]])}
+      <p class="muted">${esc(r.ressalva || "")}</p></div><div class="card"><h3>Excluídos</h3>${table(r.excluidos)}</div>${raw(r)}`,
+  },
+  analise_evento: {
+    title: "4 · Análise de evento",
+    get form() { return `<label>Tipo de evento<select name="tipo">${(INFO.tipos_evento || []).map(t => `<option>${t}</option>`).join("")}</select></label>
+      <label>Data do evento<input name="data" type="date" required></label>
+      <label class="full">Ativos<input name="tickers" placeholder="PETR4, VALE3, AZUL4"></label>
+      <label class="full">Setores (JSON)<input name="setores" placeholder='{"PETR4": "petroleo_gas"}'></label><div><button class="btn">Analisar evento</button></div>`; },
+    params: f => ({tipo_evento: f.tipo.value, data_evento: f.data.value, tickers: splitList(f.tickers.value), setores: f.setores.value ? JSON.parse(f.setores.value) : undefined}),
+    render: r => `${errors(r)}<div class="card"><h3>Reação observada</h3>${table(r.reacao_observada, [["ticker","Ativo"],["setor","Setor"],["retorno_antes","Antes",v=>pct(v)],["retorno_depois","Depois",v=>pct(v)],["retorno_anormal_depois","Anormal vs. Ibov",v=>pct(v)],["vol_antes","Vol. antes",v=>pct(v,0)],["vol_depois","Vol. depois",v=>pct(v,0)]])}</div>
+      <div class="card"><h3>Mapa de impacto (hipóteses)</h3>${table(r.mapa_de_impacto.output.setores)}</div><div class="card"><ul>${r.ressalvas.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>${raw(r)}`,
+  },
+  simulacao_cenarios: {
+    title: "5 · Simulação de cenários",
+    form: `<label class="full">Pergunta<input name="pergunta" value="O que aconteceria com minha carteira se a Selic subisse 2 pontos percentuais?"></label>
+      <div class="row full"><button class="btn">Simular</button><span class="muted">Exemplos: "E se o dólar chegasse a R$ 6,50?" · "E se o petróleo caísse 20%?"</span></div>`,
+    params: f => ({pergunta: f.pergunta.value}),
+    render: r => {
+      if (r.erro) return `<div class="card err">${esc(r.erro)}</div>`;
+      const o = r.resultado.output || {}; const c = o.carteira || {};
+      return `${errors(r)}<div class="card"><h3>Impacto estimado na carteira</h3><p><b>${num(c.impacto_pct)}%</b> (R$ ${num(c.impacto_rs)}) · intervalo de 90%: R$ ${num((c.intervalo_90_rs||[])[0])} a R$ ${num((c.intervalo_90_rs||[])[1])}</p>
+        ${table(o.posicoes, [["ticker","Ativo"],["impacto_pct","Impacto %",v=>num(v)],["impacto_rs","Impacto R$",v=>num(v)],["r2","R²",v=>num(v)]])}</div>
+        <div class="grid2"><div class="card"><h3>Hipóteses</h3><ul>${(o.hipoteses||[]).map(x=>`<li>${esc(x)}</li>`).join("")}</ul></div><div class="card"><h3>Limitações</h3><ul>${(o.limitacoes||[]).map(x=>`<li>${esc(x)}</li>`).join("")}</ul></div></div>${raw(r)}`;
+    },
+  },
+  analise_carteira: {
+    title: "6 · Análise de carteira",
+    form: `<label>Ativo<input name="ticker" placeholder="ITUB4"></label><label>Valor (R$)<input name="valor" type="number"></label>
+      <label>Setor<select name="setor"><option value="">(não informado)</option>${SECTORS.map(s => `<option>${s}</option>`).join("")}</select></label>
+      <div class="row"><button class="btn secondary" data-acao="add" type="button">Salvar posição</button><button class="btn">Analisar carteira</button></div>`,
+    params: f => ({}),
+    render: r => { const o = r.risco.output || {}; const rk = o.risco || {};
+      return `${errors(r)}<div class="card"><h3>Risco</h3><p>Volatilidade ${pct(rk.volatilidade_anual,0)} a.a. · VaR 95% 1d ${pct(rk.var95_1d_pct)} (R$ ${num(rk.var95_1d_rs)}) · N efetivo ${num(o.concentracao && o.concentracao.n_efetivo,1)}</p>
+        <h3>Alertas</h3><ul>${(o.alertas||[]).map(x=>`<li>${esc(x)}</li>`).join("") || "<li>Nenhum</li>"}</ul></div>
+        <div class="card"><h3>Alternativas para estudo (menor correlação)</h3>${table(r.alternativas_diversificacao, [["ticker","Ativo"],["correlacao_com_carteira","Correlação",v=>num(v)],["volatilidade_anual","Vol.",v=>pct(v,0)]])}<p class="muted">${esc(r.nota)}</p></div>${raw(r)}`; },
+  },
+  pesquisa: {
+    title: "7 · Pesquisa e desenvolvimento",
+    form: `<label class="full">Ativos para treino<input name="tickers" value="PETR4, VALE3, ITUB4"></label><label>Horizonte<input name="horizonte" type="number" value="5"></label>
+      <label>Ativo para comparar estratégias<input name="ticker" value="PETR4"></label><label>Responsável (aprovação)<input name="resp" placeholder="user:seu-nome"></label>
+      <div class="row full"><button class="btn" data-acao="treinar_validar">Treinar e validar</button><button class="btn secondary" data-acao="comparar_estrategias">Comparar estratégias</button><button class="btn secondary" data-acao="listar">Listar modelos</button></div>`,
+    params: f => ({tickers: splitList(f.tickers.value), horizonte: +f.horizonte.value, ticker: f.ticker.value}),
+    render: r => {
+      let h = errors(r);
+      if (r.validacao) h += `<div class="card"><h3>${esc(r.modelo)} → ${esc(r.status)}</h3><p>${esc(r.proximo_passo)}</p>${table([r.validacao])}</div>`;
+      if (r.estrategias) h += `<div class="card"><h3>Estratégias (${esc(r.ticker)})</h3>${table(Object.entries(r.estrategias).map(([k, v]) => ({estrategia: k, ...(v.estrategia || v)})), [["estrategia","Estratégia"],["retorno_total","Retorno",v=>pct(v)],["sharpe","Sharpe",v=>num(v)],["max_drawdown","Drawdown",v=>pct(v)]])}<ul>${r.ressalvas.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></div>`;
+      if (r.modelos) h += `<div class="card"><h3>Modelos</h3>${table(r.modelos, [["model_id","Modelo"],["version","Versão"],["status","Status"],["created_by","Autor"],["version","Ações",(v,row)=>row.status==="validado"?`<button class="btn secondary" onclick="govern('aprovar','${row.model_id}','${v}')">Aprovar</button>`:row.status==="aprovado"?`<button class="btn secondary" onclick="govern('promover','${row.model_id}','${v}')">Promover</button>`:""]])}</div>`;
+      return h + raw(r);
+    },
+  },
+  auditoria: {
+    title: "8 · Auditoria",
+    form: `<label><span>Somente modelos em produção</span><select name="prod"><option value="">não</option><option value="1">sim</option></select></label><div><button class="btn">Auditar previsões</button></div>`,
+    params: f => ({somente_producao: !!f.prod.value}),
+    render: r => { const o = r.auditoria.output || {};
+      return `<div class="card"><h3>Desempenho</h3>${table([{total: o.total, vencidas: o.vencidas, pendentes: o.pendentes, acerto: pct(o.acerto_direcional), sempre_alta: pct(o.acerto_sempre_alta), brier: num(o.brier,3), ece: num(o.ece,3), retorno_liquido: pct(o.retorno_hipotetico_acumulado_liquido), erro_medio: num(o.erro_medio_absoluto,4)}])}
+        ${(r.auditoria.warnings||[]).map(w=>`<p class="muted">${esc(w)}</p>`).join("")}</div>
+        <div class="card"><h3>Por horizonte</h3>${table(Object.entries(o.por_horizonte||{}).map(([h,m])=>({horizonte:h, n:m.n, acerto:pct(m.acerto_direcional), brier:num(m.brier,3), retorno:pct(m.retorno_hipotetico_acumulado_liquido)})))}</div>
+        <div class="card"><h3>Falhas mais relevantes</h3>${table(o.piores_falhas)}</div>${raw(r)}`; },
+  },
+};
+
+function splitList(s) { const a = s.split(/[,\s]+/).map(x => x.trim().toUpperCase()).filter(Boolean); return a.length ? a : undefined; }
+
+async function govern(acao, modelo_id, versao) {
+  const responsavel = $("[name=resp]") && $("[name=resp]").value;
+  try { const r = await api("/api/modes/pesquisa", {acao, modelo_id, versao, responsavel}); $("#result").innerHTML = VIEWS.pesquisa.render(r); }
+  catch (e) { alert(e.message); }
+}
+
+function showMode(slug) {
+  document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.slug === slug));
+  const v = VIEWS[slug];
+  if (!v) return showStatic(slug);
+  $("#main").innerHTML = `<div class="card"><h2>${v.title}</h2><p class="muted">${esc((MODES.find(m => m.slug === slug) || {}).objective || "")}</p><form id="f">${v.form}</form></div><div id="result"></div>`;
+  const f = $("#f"); let acao = null;
+  f.querySelectorAll("[data-acao]").forEach(b => b.addEventListener("click", () => { acao = b.dataset.acao; }));
+  f.addEventListener("submit", async ev => {
+    ev.preventDefault();
+    const btns = f.querySelectorAll("button"); btns.forEach(b => b.disabled = true);
+    $("#result").innerHTML = '<div class="card muted">Executando…</div>';
+    try {
+      const params = v.params(f); if (acao) params.acao = acao;
+      const r = await api(`/api/modes/${slug}`, params);
+      $("#result").innerHTML = v.render(r);
+    } catch (e) { $("#result").innerHTML = `<div class="card err">${esc(e.message)}</div>`; }
+    btns.forEach(b => b.disabled = false); acao = null;
+  });
+  if (slug === "analise_carteira") {
+    f.querySelector("[data-acao=add]").addEventListener("click", async () => {
+      try { await api("/api/user/portfolio", {ticker: f.ticker.value, valor: +f.valor.value, setor: f.setor.value || undefined}); await listPortfolio(); }
+      catch (e) { alert(e.message); }
+    });
+    listPortfolio();
+  }
+}
+
+async function listPortfolio() {
+  const u = await api("/api/user");
+  $("#result").innerHTML = `<div class="card"><h3>Carteira cadastrada</h3>${table(u.carteira, [["ticker","Ativo"],["value","Valor (R$)",v=>num(v)],["sector","Setor"]])}</div>`;
+}
+
+let MODES = [];
+async function showStatic(which) {
+  document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.slug === which));
+  $("#main").innerHTML = '<div class="card muted">Carregando…</div>';
+  if (which === "agentes") {
+    const a = await api("/api/agents");
+    $("#main").innerHTML = `<div class="card"><h2>18 agentes</h2></div>` + a.map(x => `<div class="card"><h3>${x.id} · ${esc(x.name)} <span class="pill">${esc(x.group)}</span></h3><p>${esc(x.mission)}</p>
+      <details><summary>Detalhes</summary><p><b>Funções:</b> ${esc(x.functions.join("; "))}</p><p><b>Skills autorizadas:</b> ${esc(x.skills_autorizadas.join(", "))}</p><p><b>Fontes:</b> ${esc(x.data_sources.join("; "))}</p>
+      <p><b>Entregáveis:</b> ${esc(x.deliverables.join("; "))}</p><p><b>Critérios de qualidade:</b> ${esc(x.quality_criteria.join("; "))}</p><p><b>Restrições:</b> ${esc(x.restrictions.join(" "))}</p></details></div>`).join("");
+  } else if (which === "skills") {
+    const s = await api("/api/skills");
+    $("#main").innerHTML = `<div class="card"><h2>Biblioteca de skills (${s.length})</h2>${table(s, [["id","Identificador"],["version","Versão"],["category","Categoria"],["objective","Objetivo"],["authorized_agents","Agentes",v=>esc(v.join(", "))]])}</div>`;
+  } else if (which === "memoria") {
+    const [an, al, u] = await Promise.all([api("/api/memory/analyses"), api("/api/memory/alerts"), api("/api/user")]);
+    $("#main").innerHTML = `<div class="card"><h2>Memória</h2><form id="w"><label>Acompanhar ativo<input name="t" placeholder="WEGE3"></label><div><button class="btn">Adicionar</button></div></form>
+      <p>Acompanhados: ${esc(u.acompanhados.join(", ") || "nenhum")}</p></div>
+      <div class="card"><h3>Análises anteriores</h3>${table(an, [["created_at","Data"],["mode","Modo"],["subject","Ativo"],["conclusion","Conclusão"]])}</div>
+      <div class="card"><h3>Alertas</h3>${table(al, [["at","Data"],["kind","Tipo"],["message","Mensagem"]])}</div>`;
+    $("#w").addEventListener("submit", async e => { e.preventDefault(); await api("/api/user/watchlist", {ticker: e.target.t.value}); showStatic("memoria"); });
+  }
+}
+
+(async function init() {
+  try { INFO = await api("/api/info"); MODES = await api("/api/modes"); } catch (e) { $("#main").innerHTML = `<div class="card err">${esc(e.message)}</div>`; return; }
+  $("#ver").textContent = "v" + INFO.versao;
+  $("#demo").hidden = !INFO.modo_demonstracao;
+  $("#nav").innerHTML = '<div class="sep">Modos</div>' + MODES.map(m => `<button data-slug="${m.slug}">${m.id}. ${esc(m.name)}</button>`).join("") +
+    '<div class="sep">Sistema</div><button data-slug="agentes">Agentes</button><button data-slug="skills">Skills</button><button data-slug="memoria">Memória</button>';
+  $("#nav").addEventListener("click", e => { const b = e.target.closest("button"); if (b) showMode(b.dataset.slug); });
+  showMode("analise_profunda");
+})();
+</script>
+</body>
+</html>
