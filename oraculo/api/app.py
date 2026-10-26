@@ -21,7 +21,7 @@ from ..memory.store import GovernanceError
 from ..modes import MODES, Services, run_mode
 from ..skills import REGISTRY
 from ..skills.knowledge import EVENT_SECTOR_MAP
-from ..modes.base import DEFAULT_UNIVERSE, FACTORS
+from ..modes.base import DEFAULT_UNIVERSE, FACTORS, parse_portfolio_csv, valued_portfolio
 
 WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
@@ -166,8 +166,43 @@ def create_app(services: Services | None = None) -> FastAPI:
 
     @app.post("/api/user/portfolio")
     def position(body: dict = Body(...)) -> list[dict]:
-        guard(m.set_position, body["ticker"], float(body["valor"]), body.get("setor"))
+        def f(x):
+            return float(str(x).replace(",", ".")) if x not in (None, "") else None
+
+        if body.get("quantidade") not in (None, ""):
+            guard(m.set_position, body["ticker"], sector=body.get("setor"), quantity=f(body["quantidade"]),
+                  avg_price=f(body.get("preco_medio")), avg_price_fees=f(body.get("preco_medio_taxas")), broker=body.get("corretora"))
+        else:
+            guard(m.set_position, body["ticker"], f(body.get("valor")), body.get("setor"))
         return m.portfolio()
+
+    @app.delete("/api/user/portfolio/{ticker}")
+    def remove_position(ticker: str) -> list[dict]:
+        m.remove_position(ticker)
+        return m.portfolio()
+
+    @app.post("/api/user/portfolio/import")
+    def import_portfolio(body: dict = Body(...)) -> dict:
+        items, errs = parse_portfolio_csv(body.get("csv", ""))
+        if errs and not items:
+            raise HTTPException(400, "; ".join(errs))
+        if body.get("substituir"):
+            for p in m.portfolio():
+                m.remove_position(p["ticker"])
+        saved = []
+        for it in items:
+            try:
+                m.set_position(it["ticker"], sector=it["sector"], quantity=it["quantity"], avg_price=it["avg_price"],
+                               avg_price_fees=it["avg_price_fees"], broker=it["broker"])
+                saved.append(it["ticker"])
+            except ValueError as exc:
+                errs.append(str(exc))
+        return {"importados": saved, "erros": errs, "carteira": m.portfolio()}
+
+    @app.get("/api/user/portfolio/valued")
+    def portfolio_valued() -> dict:
+        rows, errs, _ = valued_portfolio(svc)
+        return {"posicoes": rows, "falhas_coleta": errs}
 
     @app.post("/api/user/alerts")
     def add_alert(body: dict = Body(...)) -> list[dict]:

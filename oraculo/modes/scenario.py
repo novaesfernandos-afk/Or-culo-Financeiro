@@ -12,7 +12,7 @@ import unicodedata
 
 from ..core import agent_ids as A
 from ..skills.base import SkillContext, run_skill
-from .base import FACTORS, Services
+from .base import FACTORS, Services, valued_portfolio
 
 ALIASES = {
     "selic": "selic", "juros": "selic", "juro": "selic",
@@ -63,7 +63,7 @@ def run(svc: Services, params: dict) -> dict:
         parsed_from = params["pergunta"]
     if not scenario:
         raise ValueError("Informe 'cenario' ou 'pergunta'.")
-    positions = params.get("posicoes") or {p["ticker"]: p["value"] for p in svc.memory.portfolio()}
+    positions = params.get("posicoes") or {p["ticker"]: p["valor_usado"] for p in valued_portfolio(svc)[0]}
     if not positions:
         raise ValueError("Carteira vazia: cadastre posições ou informe 'posicoes'.")
     unknown = [f for f in scenario if f not in FACTORS]
