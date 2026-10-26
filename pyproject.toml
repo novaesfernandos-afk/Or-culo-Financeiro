@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "oraculo-b3"
+version = "0.1.0"
+description = "Oráculo B3 - inteligência de investimentos multiagente para a bolsa brasileira"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "httpx>=0.27"]
+
+[project.scripts]
+oraculo-b3 = "oraculo.api.app:main"
+
+[tool.setuptools.packages.find]
+include = ["oraculo*"]
+
+[tool.setuptools.package-data]
+oraculo = ["web/*.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
