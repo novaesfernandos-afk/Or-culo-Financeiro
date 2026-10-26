@@ -42,7 +42,7 @@ def source_tier(source: str, url: str | None = None) -> int:
 
 
 RUMOR_MARKERS = (
-    "segundo fontes", "fontes próximas", "fontes ouvidas", "rumor", "especula", "estaria ", "estariam ",
+    "segundo fontes", "fontes próximas", "fontes ouvidas", "dizem fontes", "diz fonte", "afirmam fontes", "segundo pessoas", "rumor", "especula", "estaria ", "estariam ",
     "poderia ", "poderiam ", "teria ", "teriam ", "não confirmad", "sem confirmação",
     "reportedly", "sources said", "people familiar", "is said to", "rumour", "rumor has it", "could be considering",
 )

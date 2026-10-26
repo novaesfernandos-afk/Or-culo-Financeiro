@@ -19,19 +19,39 @@ ORACULO_DEMO=1 oraculo-b3          # http://127.0.0.1:8000
 export BRAPI_TOKEN=...             # sem token, a brapi libera só alguns ativos (ex.: PETR4, VALE3, ITUB4, MGLU3)
 oraculo-b3
 
-pytest                             # 104 testes
+pytest                             # 134 testes, sem acesso à rede
 ```
 
-Variáveis: `ORACULO_DEMO`, `ORACULO_DB` (padrão `data/oraculo.db`), `BRAPI_TOKEN`, `HOST`, `PORT`.
+| Variável | Uso |
+|----------|-----|
+| `ORACULO_DEMO=1` | Modo demonstração (somente dados sintéticos; CVM e notícias desligadas) |
+| `ORACULO_DB` | Banco SQLite (padrão `data/oraculo.db`) |
+| `ORACULO_CACHE` | Cache dos arquivos da CVM (padrão `data/cache`) |
+| `BRAPI_TOKEN` | Token da brapi.dev |
+| `ORACULO_CVM=0` / `ORACULO_NEWS=0` | Desliga a CVM ou o coletor de notícias |
+| `ORACULO_NEWS_FEEDS` | Feeds RSS (padrão `infomoney,infomoney_empresa,valor,valor_empresas`; `google` é opcional) |
+| `ORACULO_USER` / `ORACULO_PASSWORD` | Usuário e senha de acesso; **obrigatório** para expor fora da máquina local |
+| `HOST` / `PORT` | Endereço do servidor |
 
 ## Regras obrigatórias (aplicadas em código)
 
-1. **Nunca inventar notícias, cotações ou indicadores.** Uma `Series` sem fonte não pode ser criada; um dado
-   indisponível gera erro explícito (`Nenhum valor será estimado no lugar`), nunca um valor substituto.
-2. **Registrar fonte e horário dos dados.** Toda série e notícia carrega `source`, `retrieved_at` e data de
-   referência; cada resultado de skill lista suas fontes e o relatório final traz a seção "Fontes e horários".
-3. **Identificar informações atrasadas.** Limites de atraso por frequência (`core/types.py`); dados atrasados
-   degradam a skill, são exibidos no relatório e reduzem o peso das evidências no Comitê.
+| # | Regra | Como é aplicada |
+|---|-------|-----------------|
+| 1 | Nunca inventar notícias, cotações ou indicadores | `Series` exige fonte; dado indisponível gera erro, nunca valor substituto |
+| 2 | Registrar fonte e horário | Toda série, notícia e resultado de skill carrega fonte, data de referência e horário de coleta |
+| 3 | Identificar informações atrasadas | Limites por frequência; aviso no relatório e no Painel; peso reduzido no Comitê |
+| 4 | Não apresentar probabilidades sem calibração | Previsão direcional só de modelo de produção com mapa de calibração; faixas de cenário só viram probabilidade se a cobertura histórica medida bater com a nominal |
+| 5 | Não usar informações futuras em testes | Atributos só com passado, execução defasada no backtest, expurgo no walk-forward, detecção de vazamento |
+| 6 | Opiniões não são probabilidades | Pesos dos agentes exibidos como "baixa/média/alta"; índice agregado marcado como não-probabilidade |
+| 7 | Não prometer lucros | Compliance bloqueia promessas, certezas e linguagem de ordem; aviso legal obrigatório |
+| 8 | Separar experimental de produção | Análises gravadas por ambiente; Modo 7 isolado; previsões só registradas com modelo de produção |
+| 9 | Respeitar limites das fontes | Intervalo mínimo por servidor; Google Notícias desligado por padrão; erros 401/403 não são repetidos |
+| 10 | Não negociar | Não há integração com corretoras nem rotas de ordens (testado) |
+| 11 | Monitorar custos | Chamadas e processamento por dia, com orçamentos por provedor; exibidos no Painel |
+| 12 | Exibir dados insuficientes | "Evidência insuficiente" por agente e lista no Painel |
+
+Cada regra tem teste em `tests/test_regras.py`. O planejamento técnico (capacidades da plataforma, dependências,
+custos e mapeamento de pastas) está em [`docs/PLANEJAMENTO.md`](docs/PLANEJAMENTO.md).
 
 Dados sintéticos (modo demonstração) são marcados em toda a cadeia, sinalizados no relatório, rejeitados pelo
 Auditor fora da demonstração e nunca podem originar um modelo de produção.
@@ -101,6 +121,7 @@ duração e hashes de entrada/saída.
 | 5 | Simulação de cenários | Aceita perguntas em português ("E se o dólar chegasse a R$ 6,50?"); hipóteses, limitações e alerta de choque fora do histórico |
 | 6 | Análise de carteira | Concentração, VaR/CVaR, correlações, contribuição de risco, liquidez e alternativas de menor correlação; sem ordens |
 | 7 | Pesquisa e desenvolvimento | Treino, validação walk-forward com expurgo, comparação de estratégias, ciclo de aprovação |
+| — | Painel | Página inicial: Selic, IPCA e dólar com fonte e horário, ativos e carteira, alertas, análises, modelos em produção, custos do dia, saúde das fontes e dados insuficientes |
 | 8 | Auditoria | Acerto direcional, erro médio, Brier/ECE, retorno líquido de custos, por horizonte e por modelo, piores falhas |
 
 ### Fluxo de colaboração (Modo 2)
@@ -145,15 +166,41 @@ versão anterior é arquivada). Parâmetros de versões não experimentais não 
 |-------|-----|------------|
 | Banco Central (SGS) | Selic meta, Selic diária, IPCA mensal e 12 meses, dólar PTAX | API pública |
 | brapi.dev | Cotações e volume diários (até 5 anos) | Token necessário para a maioria dos ativos e para `^BVSP` |
+| CVM - Dados Abertos | Cadastro (ticker → CNPJ), fatos relevantes e comunicados (IPE), balanço anual (DFP) e trimestral (ITR) | Pública; baixada 1x/dia para o cache |
+| InfoMoney e Valor (RSS) | Notícias por empresa (título, link, fonte e horário) | Uso sujeito aos termos de cada veículo |
+| Google Notícias (RSS) | Busca por empresa | **Desligado por padrão**: o feed só permite uso pessoal e não comercial |
 | CSV do usuário | Qualquer série licenciada (commodities, curva DI, indicadores globais) | Fonte declarada obrigatória |
 | Sintético | Demonstração e testes | Sempre marcado como sintético |
 
-Notícias, demonstrações financeiras, pares setoriais e eventos geopolíticos podem ser enviados na requisição
-do Modo 2 (`noticias`, `financials` + `financials_source`, `valuation`, `pares`, `eventos_geopoliticos`).
+Na Análise Profunda, o Orquestrador busca automaticamente na CVM o último balanço anual consolidado e o último
+trimestre (comparado ao mesmo trimestre do ano anterior), além dos fatos relevantes e notícias dos últimos 14 dias.
+Com o preço atual, o Analista Fundamentalista calcula P/L, P/VP, EV/EBITDA e rendimento do fluxo de caixa livre.
+Detalhes que evitam números errados:
+
+- A quantidade de ações vem da CVM em unidades ou em milhares, conforme a empresa. A escala é confirmada pelo lucro
+  por ação do próprio balanço; sem confirmação, os múltiplos não são calculados.
+- Bancos e seguradoras são identificados pelo plano de contas; critérios de dívida, EBITDA e caixa não se aplicam a eles.
+- Notícias de veículos gerais só entram se citarem a empresa (nomes ambíguos como "Vale" e "B3" exigem menção no título).
+- Fatos relevantes da CVM são fonte oficial (confirmada). Matérias com "dizem fontes" ou "estaria" são classificadas como rumor.
+
+Dados próprios podem substituir as fontes automáticas na requisição do Modo 2 (`noticias`, `financials` +
+`financials_source`, `valuation`, `pares`, `eventos_geopoliticos`).
+
+## Publicar online (Render)
+
+O repositório inclui `Dockerfile` e `render.yaml`:
+
+1. Crie uma conta em https://render.com e conecte o GitHub.
+2. Em **New → Blueprint**, escolha este repositório. O Render lê o `render.yaml`.
+3. Ao final, em **Environment**, copie a senha gerada em `ORACULO_PASSWORD` (usuário: `oraculo`) e, se tiver,
+   informe o `BRAPI_TOKEN`.
+4. Acesse a URL `https://oraculo-b3-....onrender.com`; o navegador pede usuário e senha.
+
+No plano gratuito o serviço "dorme" após inatividade e o disco é temporário: análises, carteira e modelos se perdem
+ao reiniciar. Para persistir, use um plano pago com o bloco `disk` do `render.yaml`. O container roda sem privilégios
+de administrador e se recusa a iniciar exposto sem senha.
 
 ## Próximos passos sugeridos
 
-- Coletor de notícias (RSS de fontes profissionais e fatos relevantes da CVM) alimentando o Modo 1.
-- Ingestão automática de DFP/ITR da CVM para o Analista Fundamentalista.
 - Fontes licenciadas para commodities, curva DI, fluxo estrangeiro e indicadores globais.
 - Narrativa opcional via LLM no Comunicador, sempre sujeita à revisão de compliance.

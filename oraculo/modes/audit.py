@@ -10,7 +10,7 @@ def run(svc: Services, params: dict) -> dict:
     include_synth = bool(params.get("incluir_sinteticos", svc.demo))
     resolved = svc.memory.resolve_due_predictions(lambda t: svc.hub.try_get(f"price:{t}"))
     preds = svc.memory.predictions(include_synthetic=include_synth)
-    only_prod = bool(params.get("somente_producao", False))
+    only_prod = bool(params.get("somente_producao", True))  # regra 8: produção separada de experimentos
     if only_prod:
         preds = [p for p in preds if p["model_status"] == "producao"]
     rows = [

@@ -8,7 +8,7 @@ from .base import ModeSpec, Services  # noqa: F401
 
 
 def _deep(svc: Services, params: dict) -> dict:
-    return deep_analysis(params["ticker"], svc.hub, svc.memory, params)
+    return deep_analysis(params["ticker"], svc.hub, svc.memory, params, collectors=svc.collectors())
 
 
 MODES: dict[str, ModeSpec] = {

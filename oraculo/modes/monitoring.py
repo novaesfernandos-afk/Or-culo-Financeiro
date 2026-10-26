@@ -80,16 +80,23 @@ def run_cycle(svc: Services, params: dict | None = None) -> dict:
         price_status.append(row)
 
     news_out = None
-    if p.get("noticias"):
-        items = news_from_dicts(p["noticias"])
+    items = news_from_dicts(p["noticias"]) if p.get("noticias") else []
+    if not items and svc.news is not None:
+        for t in tickers:
+            items += svc.news.collect(t, days=int(p.get("dias_noticias", 2)))
+            errors += [f"noticias {t}: {e}" for e in svc.news.errors]
+    if items:
         seen = svc.state.setdefault("news_seen", [])
         r = run_skill("global_news_monitor", A.NOTICIAS, ctx, items=items, seen_fingerprints=seen)
         news_out = r.to_dict()
         if r.ok:
             for g in r.output["grupos"]:
                 seen.append(g["fingerprint"])
-                if g["novidade"] and g["status"] == "confirmada" and (not g["tickers"] or set(g["tickers"]) & set(tickers)):
-                    alerts.append({"tipo": "noticia", "mensagem": f"[{g['status']}] {g['titulo']} ({', '.join(g['fontes'])})"})
+                relevant = not g["tickers"] or set(g["tickers"]) & set(tickers)
+                # oficiais ou de veículo profissional; rumores e fontes não classificadas não geram alerta
+                if g["novidade"] and relevant and g["status"] != "rumor" and g["melhor_nivel_fonte"] <= 2:
+                    tipo = "fato_relevante" if g["melhor_nivel_fonte"] == 1 else "noticia"
+                    alerts.append({"tipo": tipo, "mensagem": f"[{g['status']}] {g['titulo']} ({', '.join(g['fontes'])})", "url": g["url"]})
 
     for a in alerts:
         svc.memory.log_alert(a["tipo"], a["mensagem"], a)

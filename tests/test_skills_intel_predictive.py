@@ -108,7 +108,7 @@ def test_training_set_only_uses_known_labels():
 def test_price_direction_forecast_flags_unvalidated(prices):
     r = run_skill("price_direction_forecast", A.QUANT, prices=prices, horizon=5)
     assert r.ok and 0 <= r.output["prob_alta"] <= 1
-    assert r.output["status_modelo"] == "não validado"
+    assert r.output["status_modelo"] == "experimental" and r.output["calibrada"] is False
     assert any("sem validação" in w for w in r.warnings)
 
 

@@ -194,7 +194,8 @@ class AgentView:
         return {
             "agent_id": self.agent_id,
             "stance": self.stance.value,
-            "confidence": round(self.confidence, 3),
+            "peso_opiniao": round(self.confidence, 3),  # peso interno de evidência; NÃO é probabilidade (regra 6)
+            "peso_qualitativo": "alta" if self.confidence >= 0.5 else ("média" if self.confidence >= 0.3 else ("baixa" if self.confidence > 0 else "nenhuma")),
             "summary": self.summary,
             "evidence": self.evidence,
             "risks": self.risks,

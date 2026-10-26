@@ -104,7 +104,7 @@ def training_set(prices: np.ndarray, horizon: int, upto: int | None = None) -> t
 @skill(
     id="price_direction_forecast",
     name="Previsão probabilística de direção",
-    version="1.0.0",
+    version="1.1.0",
     category="preditiva",
     objective="Estimar a probabilidade de alta do ativo no horizonte informado, usando modelo versionado.",
     authorized_agents=[A.QUANT],
@@ -119,7 +119,7 @@ def training_set(prices: np.ndarray, horizon: int, upto: int | None = None) -> t
     tools=["DirectionModel", "numpy"],
     procedure=[
         "Calcular atributos invariantes à escala (momentum, volatilidade, RSI, distância da MMS50).",
-        "Usar modelo de produção; na ausência, ajustar só com rótulos já conhecidos e marcar como não validado.",
+        "Usar modelo de produção com mapa de calibração (isotônica fora da amostra); na ausência, ajuste local marcado como experimental.",
         "Comparar com a taxa-base histórica de altas.",
     ],
     validation=["Probabilidades em [0, 1]."],
@@ -149,11 +149,17 @@ def price_direction_forecast(
         version, status = model_version or "desconhecida", model_status or "desconhecido"
     else:
         model = DirectionModel(horizon).fit(Xtr, ytr)
-        version, status = f"{DirectionModel.name}_h{horizon}/ajuste-local", "não validado"
-        run.warn("Modelo ajustado localmente sem validação fora da amostra: usar apenas como referência.")
-    prob = float(model.predict_proba(X[-1:])[0])
+        version, status = f"{DirectionModel.name}_h{horizon}/ajuste-local", "experimental"
+        run.warn("Modelo experimental ajustado localmente, sem validação fora da amostra nem calibração: uso restrito ao Modo 7.")
+    raw = float(model.predict_proba(X[-1:])[0])
+    calib = (model_params or {}).get("calibracao")
+    prob = isotonic_apply(np.array(calib["limiares"]), np.array(calib["valores"]), raw) if calib else raw
+    if not calib:
+        run.warn("Probabilidade sem mapa de calibração (regra 4): não pode ser apresentada como probabilidade.", degrade=False)
     return {
         "prob_alta": prob,
+        "prob_bruta": raw,
+        "calibrada": bool(calib),
         "horizonte_pregoes": horizon,
         "taxa_base": float(ytr.mean()),
         "vantagem_sobre_base": prob - float(ytr.mean()),
@@ -168,10 +174,39 @@ def price_direction_forecast(
 price_direction_forecast.validator(prob_in_unit("prob_alta", "taxa_base"))
 
 
+def _fhs(r: np.ndarray, horizon: int, n_sims: int, rng: np.random.Generator) -> tuple[np.ndarray, float]:
+    """Simulação histórica filtrada usando apenas os retornos `r` (passado). Retorna log-retornos acumulados."""
+    sig = ewma_vol(r)
+    z = (r / sig)[20:]
+    z = (z - z.mean()) / z.std()
+    sigma_now = float(np.sqrt(0.94 * sig[-1] ** 2 + 0.06 * r[-1] ** 2))
+    return (float(r.mean()) + sigma_now * rng.choice(z, size=(n_sims, horizon))).sum(axis=1), sigma_now
+
+
+def interval_coverage(r: np.ndarray, horizon: int, max_points: int = 40, min_history: int = 250, n_sims: int = 1000, seed: int = 3) -> dict:
+    """Cobertura real das faixas em datas passadas, sem usar informação posterior a cada data."""
+    rng = np.random.default_rng(seed)
+    ends = list(range(len(r) - horizon, min_history - 1, -horizon))[:max_points]
+    hit90 = hit50 = 0
+    for t in ends:
+        sims, _ = _fhs(r[:t], horizon, n_sims, rng)
+        p05, p25, p75, p95 = np.percentile(sims, [5, 25, 75, 95])
+        realized = r[t : t + horizon].sum()
+        hit90 += p05 <= realized <= p95
+        hit50 += p25 <= realized <= p75
+    n = len(ends)
+    if n < 20:
+        return {"n": n, "cobertura_90": None, "cobertura_50": None, "calibrada": False, "motivo": "menos de 20 janelas passadas"}
+    c90, c50 = hit90 / n, hit50 / n
+    ok = abs(c90 - 0.90) <= 0.07 and abs(c50 - 0.50) <= 0.12
+    return {"n": n, "cobertura_90": c90, "cobertura_50": c50, "calibrada": bool(ok),
+            "motivo": "cobertura dentro da tolerância" if ok else "cobertura fora da tolerância"}
+
+
 @skill(
     id="return_distribution_forecast",
     name="Estimativa da distribuição de retornos",
-    version="1.0.0",
+    version="1.1.0",
     category="preditiva",
     objective="Estimar quantis do retorno acumulado no horizonte por simulação histórica filtrada (bootstrap de resíduos padronizados).",
     authorized_agents=[A.QUANT, A.RISCO, A.CARTEIRA],
@@ -181,10 +216,13 @@ price_direction_forecast.validator(prob_in_unit("prob_alta", "taxa_base"))
     procedure=[
         "Volatilidade EWMA (λ=0,94); resíduos padronizados z = r/σ.",
         "Simular trajetórias com σ atual e z reamostrados com reposição.",
-        "Reportar quantis 5/25/50/75/95, média e P(retorno > 0).",
+        "Reportar quantis 5/25/50/75/95 e média.",
+        "Calibração (regra 4): em até 40 datas passadas não sobrepostas, refazer a simulação só com dados anteriores "
+        "e medir a cobertura real das faixas p05-p95 (nominal 90%) e p25-p75 (nominal 50%).",
+        "Faixas só recebem rótulo de probabilidade se a cobertura medida estiver dentro da tolerância (±7 p.p. e ±12 p.p.).",
     ],
     validation=["Quantis monotônicos."],
-    output_schema={"quantis": "dict", "prob_positivo": "float", "media": "float"},
+    output_schema={"quantis": "dict", "media": "float", "calibracao": "dict (cobertura_90, cobertura_50, calibrada)"},
     failure_handling="Menos de 250 retornos => falha.",
     heavy=True,
 )
@@ -192,20 +230,19 @@ def return_distribution_forecast(run: SkillRun, prices: Series, horizon: int = 2
     r = np.diff(np.log(prices.values))
     if len(r) < 250:
         raise SkillError("São necessários ao menos 250 retornos.")
-    sig = ewma_vol(r)
-    z = (r / sig)[20:]
-    z = (z - z.mean()) / z.std()
-    sigma_now = float(np.sqrt(0.94 * sig[-1] ** 2 + 0.06 * r[-1] ** 2))
-    drift = float(r.mean())
     rng = np.random.default_rng(seed)
-    sims = (drift + sigma_now * rng.choice(z, size=(n_sims, horizon))).sum(axis=1)
+    sims, sigma_now = _fhs(r, horizon, n_sims, rng)
     ret = np.exp(sims) - 1
     q = np.percentile(ret, [5, 25, 50, 75, 95])
+    cal = interval_coverage(r, horizon)
+    if not cal["calibrada"]:
+        run.warn(f"Faixas sem calibração confirmada ({cal['motivo']}): exibir como faixas, não como probabilidades.", degrade=False)
     return {
         "horizonte_pregoes": horizon,
         "quantis": {"p05": q[0], "p25": q[1], "p50": q[2], "p75": q[3], "p95": q[4]},
         "media": float(ret.mean()),
-        "prob_positivo": float((ret > 0).mean()),
+        "fracao_simulacoes_positivas": float((ret > 0).mean()),
+        "calibracao": cal,
         "vol_diaria_atual": sigma_now,
         "n_simulacoes": n_sims,
     }
