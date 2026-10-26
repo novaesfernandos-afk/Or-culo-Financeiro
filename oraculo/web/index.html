@@ -285,7 +285,33 @@ let MODES = [];
 async function showStatic(which) {
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.slug === which));
   $("#main").innerHTML = '<div class="card muted">Carregando…</div>';
-  if (which === "agentes") {
+  if (which === "painel") {
+    let d;
+    try { d = await api("/api/dashboard"); } catch (e) { $("#main").innerHTML = `<div class="card err">${esc(e.message)}</div>`; return; }
+    const stale = r => r.atrasado ? ' <span class="badge warn">atrasado</span>' : "";
+    const synth = r => r.sintetico ? ' <span class="badge warn">sintético</span>' : "";
+    const fmtVal = r => r.unidade && r.unidade.includes("%") ? num(r.valor) + "%" : num(r.valor, r.valor < 20 ? 4 : 2);
+    const tile = r => r.disponivel ? `<div class="card"><div class="muted">${esc(r.indicador)}</div><div style="font-size:24px;font-weight:600">${fmtVal(r)}</div>
+      <div class="muted" style="font-size:12px">${esc(r.data)}${stale(r)}${synth(r)}<br>${esc(r.fonte)}<br>coletado ${esc(r.coletado_em.slice(0, 16).replace("T", " "))} UTC</div></div>`
+      : `<div class="card"><div class="muted">${esc(r.indicador)}</div><p class="err">Dado indisponível</p></div>`;
+    const ins = d.dados_insuficientes;
+    $("#main").innerHTML = `
+      <div class="card"><h2>Painel</h2><p class="muted">Gerado em ${esc(d.gerado_em.slice(0, 16).replace("T", " "))} UTC. Todos os valores mostram fonte e horário; nada é estimado quando falta dado.</p></div>
+      ${ins.length ? `<div class="notice"><b>Dados insuficientes:</b><ul>${ins.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>` : ""}
+      <div class="grid2">${d.macro.map(tile).join("")}</div>
+      <div class="card"><h3>Ativos acompanhados e da carteira</h3>${d.ativos.length ? table(d.ativos, [["ticker","Ativo"],["valor","Preço",(v,r)=>r.disponivel?num(v):'<span class="err">indisponível</span>'],["variacao","Dia",v=>v==null?"":`<span class="${v>=0?"pos":"neg"}">${pct(v)}</span>`],["data","Data",(v,r)=>esc(v||"")+stale(r)+synth(r)],["fonte","Fonte"]]) : '<p class="muted">Nenhum ativo acompanhado. Adicione em Memória ou na Análise de carteira.</p>'}</div>
+      <div class="grid2">
+        <div class="card"><h3>Carteira</h3>${d.carteira.posicoes.length ? `<p>Total: <b>R$ ${num(d.carteira.valor_total)}</b></p>` + table(d.carteira.posicoes, [["ticker","Ativo"],["valor","Valor",v=>"R$ "+num(v)],["peso","Peso",v=>pct(v,0)]]) : '<p class="muted">Carteira vazia.</p>'}</div>
+        <div class="card"><h3>Modelos</h3><p>Em produção: ${d.modelos.em_producao.length ? esc(d.modelos.em_producao.join(", ")) : '<span class="muted">nenhum</span>'}</p>${table(Object.entries(d.modelos.por_status).map(([s,n])=>({status:s, quantidade:n})))}</div>
+      </div>
+      <div class="card"><h3>Alertas recentes</h3>${table(d.alertas, [["at","Data",v=>esc(v.slice(0,16).replace("T"," "))],["kind","Tipo"],["message","Mensagem"]])}</div>
+      <div class="card"><h3>Análises recentes (produção)</h3>${table(d.analises_recentes, [["created_at","Data",v=>esc(v.slice(0,16).replace("T"," "))],["mode","Modo"],["subject","Ativo"],["conclusion","Conclusão"]])}</div>
+      <div class="grid2">
+        <div class="card"><h3>Custos de hoje</h3><p>${d.custos_hoje.chamadas_dados} chamadas a fontes de dados · ${num(d.custos_hoje.segundos_processamento,1)} s de processamento</p>
+          ${table(d.custos_hoje.itens.filter(i=>i.tipo==="dados"), [["nome","Fonte"],["chamadas","Chamadas"],["falhas","Falhas"],["orcamento","Limite/dia",v=>v==null?"—":num(v,0)]])}</div>
+        <div class="card"><h3>Saúde das fontes</h3>${table(d.saude_fontes, [["fonte","Fonte"],["chamadas","Chamadas"],["falhas","Falhas"],["ultimo_erro","Último erro"]])}</div>
+      </div>${raw(d)}`;
+  } else if (which === "agentes") {
     const a = await api("/api/agents");
     $("#main").innerHTML = `<div class="card"><h2>18 agentes</h2></div>` + a.map(x => `<div class="card"><h3>${x.id} · ${esc(x.name)} <span class="pill">${esc(x.group)}</span></h3><p>${esc(x.mission)}</p>
       <details><summary>Detalhes</summary><p><b>Funções:</b> ${esc(x.functions.join("; "))}</p><p><b>Skills autorizadas:</b> ${esc(x.skills_autorizadas.join(", "))}</p><p><b>Fontes:</b> ${esc(x.data_sources.join("; "))}</p>
@@ -307,10 +333,10 @@ async function showStatic(which) {
   try { INFO = await api("/api/info"); MODES = await api("/api/modes"); } catch (e) { $("#main").innerHTML = `<div class="card err">${esc(e.message)}</div>`; return; }
   $("#ver").textContent = "v" + INFO.versao;
   $("#demo").hidden = !INFO.modo_demonstracao;
-  $("#nav").innerHTML = '<div class="sep">Modos</div>' + MODES.map(m => `<button data-slug="${m.slug}">${m.id}. ${esc(m.name)}</button>`).join("") +
+  $("#nav").innerHTML = '<div class="sep">Visão geral</div><button data-slug="painel">Painel</button><div class="sep">Modos</div>' + MODES.map(m => `<button data-slug="${m.slug}">${m.id}. ${esc(m.name)}</button>`).join("") +
     '<div class="sep">Sistema</div><button data-slug="agentes">Agentes</button><button data-slug="skills">Skills</button><button data-slug="memoria">Memória</button>';
   $("#nav").addEventListener("click", e => { const b = e.target.closest("button"); if (b) showMode(b.dataset.slug); });
-  showMode("analise_profunda");
+  showMode("painel");
 })();
 </script>
 </body>

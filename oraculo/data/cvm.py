@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Iterator
 
 from ..core.types import NewsItem, utcnow
+from ..core.costs import COSTS, throttle
 from .providers.base import USER_AGENT, ProviderError
 
 BASE = "https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC"
@@ -52,10 +53,15 @@ class CVMClient:
                 url = f"{self.base_url}/{doc}/DADOS/{name}"
                 self.cache_dir.mkdir(parents=True, exist_ok=True)
                 req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+                t0 = time.time()
                 try:
+                    COSTS.check("CVM")
+                    throttle(url)
                     with urllib.request.urlopen(req, timeout=300) as r:
                         data = r.read()
+                    COSTS.record("dados", "CVM", time.time() - t0, units=len(data) / 1e6)
                 except Exception as exc:  # noqa: BLE001
+                    COSTS.record("dados", "CVM", time.time() - t0, ok=False)
                     if path.exists():  # usa a cópia antiga; o horário real fica registrado na fonte
                         return path
                     code = getattr(exc, "code", None)

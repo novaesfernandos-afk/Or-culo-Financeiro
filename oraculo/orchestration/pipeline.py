@@ -174,7 +174,7 @@ def deep_analysis(
                                to_jsonable({k: v for k, v in result.items() if k != "skills_executadas"}),
                                sorted(views), dissent, synthesis["conclusao"])
     fc = quant_pkg.get("previsao")
-    if fc:
+    if fc and fc.get("calibrada") and fc["status_modelo"] == "producao":
         pid = memory.log_prediction(
             ticker=ticker, ref_date=fc["data_referencia"], horizon=fc["horizonte_pregoes"], prob_up=fc["prob_alta"],
             expected_return=(quant_pkg.get("distribuicao") or {}).get("media"), model_version=fc["modelo"], model_status=fc["status_modelo"],

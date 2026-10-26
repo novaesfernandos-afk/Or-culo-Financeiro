@@ -10,6 +10,7 @@ from ..core.rules import provenance_banner
 from ..core.types import AgentView, SourceRef, Stance
 from ..skills.control import DISCLAIMER
 from .registry import AGENTS
+from .specialists import qualitative
 
 
 def _pct(x: float | None, signed: bool = True) -> str:
@@ -24,11 +25,17 @@ def scenarios(quant_pkg: dict) -> list[dict]:
         return []
     q = d["quantis"]
     h = d["horizonte_pregoes"]
+    cal = d.get("calibracao") or {}
+    ok = bool(cal.get("calibrada"))
+    prob = (lambda p: p) if ok else (lambda p: None)  # sem calibração, não há rótulo de probabilidade (regra 4)
+    cov = (f"cobertura medida em {cal['n']} janelas passadas: faixa de 90% acertou {cal['cobertura_90']:.0%}, faixa de 50% acertou {cal['cobertura_50']:.0%}"
+           if cal.get("cobertura_90") is not None else "cobertura histórica não pôde ser medida")
     return [
-        {"cenario": "Adverso", "probabilidade": "25%", "faixa": f"{_pct(q['p05'])} a {_pct(q['p25'])} (5% de chance de ser pior que {_pct(q['p05'])})"},
-        {"cenario": "Base", "probabilidade": "50%", "faixa": f"{_pct(q['p25'])} a {_pct(q['p75'])} (mediana {_pct(q['p50'])})"},
-        {"cenario": "Favorável", "probabilidade": "25%", "faixa": f"{_pct(q['p75'])} a {_pct(q['p95'])} (5% de chance de ser melhor que {_pct(q['p95'])})"},
-        {"horizonte_pregoes": h, "metodo": "simulação histórica filtrada (EWMA + bootstrap); não inclui eventos sem precedente no histórico"},
+        {"cenario": "Adverso", "probabilidade": prob("25%"), "faixa": f"{_pct(q['p05'])} a {_pct(q['p25'])}"},
+        {"cenario": "Base", "probabilidade": prob("50%"), "faixa": f"{_pct(q['p25'])} a {_pct(q['p75'])} (mediana {_pct(q['p50'])})"},
+        {"cenario": "Favorável", "probabilidade": prob("25%"), "faixa": f"{_pct(q['p75'])} a {_pct(q['p95'])}"},
+        {"horizonte_pregoes": h, "calibrada": ok, "cobertura": cov,
+         "metodo": "simulação histórica filtrada (EWMA + bootstrap); não inclui eventos sem precedente no histórico"},
     ]
 
 
@@ -94,15 +101,20 @@ def build_report(ticker: str, views: dict[str, AgentView], synthesis: dict, comm
     L += [f"- {x}" for x in risks] or ["- Nenhum risco específico detectado pelas métricas; riscos de cauda e eventos inéditos permanecem."]
     L.append("\n## Cenários probabilísticos")
     if scen:
+        meta = scen[3]
+        if not meta["calibrada"]:
+            L.append("- **Faixas sem calibração confirmada: não são probabilidades.**")
         for s in scen[:3]:
-            L.append(f"- **{s['cenario']}** ({s['probabilidade']}): {s['faixa']}")
-        L.append(f"- Horizonte: {scen[3]['horizonte_pregoes']} pregões. Método: {scen[3]['metodo']}.")
+            L.append(f"- **{s['cenario']}**" + (f" ({s['probabilidade']})" if s["probabilidade"] else "") + f": {s['faixa']}")
+        L.append(f"- Horizonte: {meta['horizonte_pregoes']} pregões. Método: {meta['metodo']}. Calibração: {meta['cobertura']}.")
     else:
         L.append("- Distribuição de retornos indisponível.")
     fc = (quant_pkg or {}).get("previsao")
-    if fc:
-        tag = "" if fc["status_modelo"] == "producao" else " - **modelo não validado; não usado na conclusão**"
-        L.append(f"- Probabilidade de alta em {fc['horizonte_pregoes']} pregões: {fc['prob_alta']:.0%} (taxa-base {fc['taxa_base']:.0%}){tag}.")
+    if fc and fc.get("calibrada") and fc["status_modelo"] == "producao":
+        L.append(f"- Probabilidade calibrada de alta em {fc['horizonte_pregoes']} pregões: {fc['prob_alta']:.0%} "
+                 f"(taxa-base {fc['taxa_base']:.0%}; modelo {fc['modelo']}).")
+    else:
+        L.append(f"- Previsão direcional: {(quant_pkg or {}).get('previsao_direcional', 'não emitida')}.")
     L.append("\n## Condições que invalidariam a tese")
     L += [f"- {x}" for x in inval]
     L.append("\n## Divergências entre agentes")
@@ -117,8 +129,9 @@ def build_report(ticker: str, views: dict[str, AgentView], synthesis: dict, comm
     if rejected:
         L.append(f"- Argumentos rejeitados pelo Auditor: {len(rejected)} (ex.: {rejected[0]['argumento']} - {', '.join(rejected[0]['observacoes'])}).")
     L.append("\n## Posição de cada especialista")
+    L.append("- Posições e pesos são opiniões qualitativas dos agentes, não probabilidades estatísticas.")
     for k, v in sorted(views.items()):
-        L.append(f"- **{AGENTS[k].name}**: {v.stance.value} (confiança {v.confidence:.0%}) - {v.summary}")
+        L.append(f"- **{AGENTS[k].name}**: {v.stance.value} (peso da opinião: {qualitative(v.confidence)}) - {v.summary}")
     if synthesis["frentes_sem_evidencia"]:
         L.append(f"- Sem evidência suficiente: {', '.join(AGENTS[a].name for a in synthesis['frentes_sem_evidencia'])}.")
     L.append("\n## Avisos de dados")

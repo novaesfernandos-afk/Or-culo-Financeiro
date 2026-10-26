@@ -54,6 +54,9 @@ CREATE TABLE IF NOT EXISTS alerts (
 );
 CREATE TABLE IF NOT EXISTS goals (id TEXT PRIMARY KEY, text TEXT, created_at TEXT);
 CREATE TABLE IF NOT EXISTS portfolio (ticker TEXT PRIMARY KEY, value REAL, sector TEXT, updated_at TEXT);
+CREATE TABLE IF NOT EXISTS usage_log (
+    day TEXT, kind TEXT, name TEXT, calls INTEGER, failures INTEGER, units REAL, seconds REAL, PRIMARY KEY (day, kind, name)
+);
 CREATE TABLE IF NOT EXISTS alert_log (id TEXT PRIMARY KEY, at TEXT, kind TEXT, message TEXT, payload TEXT);
 """
 
@@ -80,6 +83,10 @@ class MemoryStore:
         self._lock = threading.RLock()
         with self._lock:
             self._conn.executescript(SCHEMA)
+            cols = {r[1] for r in self._conn.execute("PRAGMA table_info(analyses)")}
+            if "environment" not in cols:  # migração: produção x experimental (regra 8)
+                self._conn.execute("ALTER TABLE analyses ADD COLUMN environment TEXT DEFAULT 'producao'")
+                self._conn.commit()
 
     def _exec(self, sql: str, args: tuple = ()) -> sqlite3.Cursor:
         with self._lock:
@@ -125,20 +132,27 @@ class MemoryStore:
         return self._all("SELECT * FROM market_events ORDER BY date")
 
     # --- Memória analítica -----------------------------------------------------
-    def save_analysis(self, mode: str, subject: str, request: dict, result: dict, agents: list[str], dissent: list, conclusion: str) -> str:
+    def save_analysis(self, mode: str, subject: str, request: dict, result: dict, agents: list[str], dissent: list, conclusion: str,
+                      environment: str = "producao") -> str:
+        if environment not in ("producao", "experimental"):
+            raise ValueError("Ambiente deve ser 'producao' ou 'experimental'.")
         aid = uuid.uuid4().hex[:12]
         self._exec(
-            "INSERT INTO analyses VALUES (?,?,?,?,?,?,?,?,?)",
-            (aid, utcnow().isoformat(), mode, subject, _j(request), _j(result), _j(agents), _j(dissent), conclusion),
+            "INSERT INTO analyses (id, created_at, mode, subject, request, result, agents, dissent, conclusion, environment) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (aid, utcnow().isoformat(), mode, subject, _j(request), _j(result), _j(agents), _j(dissent), conclusion, environment),
         )
         return aid
 
-    def analyses(self, subject: str | None = None, limit: int = 50) -> list[dict]:
-        sql = "SELECT id, created_at, mode, subject, conclusion, dissent FROM analyses"
+    def analyses(self, subject: str | None = None, limit: int = 50, environment: str | None = "producao") -> list[dict]:
+        sql = "SELECT id, created_at, mode, subject, conclusion, dissent, environment FROM analyses WHERE 1=1"
         args: tuple = ()
         if subject:
-            sql += " WHERE subject=?"
-            args = (subject,)
+            sql += " AND subject=?"
+            args += (subject,)
+        if environment:
+            sql += " AND environment=?"
+            args += (environment,)
         rows = self._all(sql + " ORDER BY created_at DESC LIMIT ?", args + (limit,))
         for r in rows:
             r["dissent"] = json.loads(r["dissent"])
@@ -345,6 +359,16 @@ class MemoryStore:
 
     def portfolio(self) -> list[dict]:
         return self._all("SELECT * FROM portfolio ORDER BY value DESC")
+
+    def add_usage(self, day: str, kind: str, name: str, seconds: float, units: float, ok: bool) -> None:
+        self._exec(
+            "INSERT INTO usage_log VALUES (?,?,?,1,?,?,?) ON CONFLICT(day, kind, name) DO UPDATE SET "
+            "calls=calls+1, failures=failures+excluded.failures, units=units+excluded.units, seconds=seconds+excluded.seconds",
+            (day, kind, name, 0 if ok else 1, units, seconds),
+        )
+
+    def usage(self, days: int = 30) -> list[dict]:
+        return self._all("SELECT * FROM usage_log ORDER BY day DESC, kind, calls DESC LIMIT ?", (days * 50,))
 
     def log_alert(self, kind: str, message: str, payload: dict | None = None) -> str:
         aid = uuid.uuid4().hex[:12]

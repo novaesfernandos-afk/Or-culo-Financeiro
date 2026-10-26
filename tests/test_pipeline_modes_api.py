@@ -38,9 +38,10 @@ def test_deep_analysis_seven_stages(svc):
         assert f"## {section}" in md
     assert "DADOS SINTÉTICOS" in md and "não constitui recomendação" in md
     assert r["etapas"]["6_comunicacao"]["publicado"] is True
-    assert r["etapas"]["7_registro"]["previsao_id"]
+    assert r["etapas"]["7_registro"]["previsao_id"] is None  # sem modelo de produção calibrado, nada é registrado como previsão
     assert len(r["comite"]["membros"]) == 3
-    assert r["sintese"]["previsao_usada_na_sintese"] is False  # modelo não validado não entra na síntese
+    assert r["sintese"]["previsao_usada_na_sintese"] is False
+    assert r["quant"]["previsao"] is None and "não emitida" in r["quant"]["previsao_direcional"]
     assert svc.memory.get_analysis(r["analise_id"])["subject"] == "PETR4"
 
 

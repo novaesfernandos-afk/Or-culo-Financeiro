@@ -50,6 +50,11 @@ class Dossier:
         return r
 
 
+def qualitative(x: float) -> str:
+    """Peso de opinião em rótulo qualitativo: opiniões não são probabilidades (regra 6)."""
+    return "alta" if x >= 0.5 else ("média" if x >= 0.3 else ("baixa" if x > 0 else "nenhuma"))
+
+
 def _insufficient(agent_id: str, why: str) -> AgentView:
     return AgentView(agent_id, Stance.INSUFFICIENT, 0.0, why, warnings=[why])
 
@@ -296,7 +301,7 @@ def noticias(d: Dossier) -> AgentView:
     score, conf = 0.0, 0.2
     if sent.ok:
         score, conf = sent.output["escore_agregado"], 0.2 + 0.4 * sent.output["confianca"]
-        ev.append(f"Sentimento agregado {score:+.2f} (confiança {sent.output['confianca']:.0%})")
+        ev.append(f"Sentimento léxico agregado {score:+.2f} (cobertura do léxico: {qualitative(sent.output['confianca'])}; não é probabilidade)")
     risks = [f"Rumor em circulação: {g['titulo']}" for g in mon.output["grupos"] if g["status"] == "rumor"]
     return _view(ag, score, conf, "Notícias verificadas e classificadas.", ev, risks, results)
 
@@ -309,34 +314,37 @@ def quant(d: Dossier, production_model: dict | None) -> tuple[AgentView, dict]:
     ag = A.QUANT
     if d.prices is None:
         return _insufficient(ag, "Cotações indisponíveis."), {}
-    params = {}
-    if production_model:
-        params = {"model_params": production_model["params"], "model_version": f"{production_model['model_id']}@{production_model['version']}", "model_status": "producao"}
-    fc = d.run("price_direction_forecast", ag, prices=d.prices, horizon=d.horizon, **params)
+    fc = None
+    if production_model and (production_model.get("params") or {}).get("calibracao"):
+        fc = d.run("price_direction_forecast", ag, prices=d.prices, horizon=d.horizon, model_params=production_model["params"],
+                   model_version=f"{production_model['model_id']}@{production_model['version']}", model_status="producao")
     dist = d.run("return_distribution_forecast", ag, prices=d.prices, horizon=d.horizon)
     vol = d.run("volatility_forecast", ag, prices=d.prices, horizon=21)
-    results = [r for r in (fc, dist, vol) if r.ok]
+    results = [r for r in (fc, dist, vol) if r is not None and r.ok]
     package = {
-        "previsao": fc.output if fc.ok else None,
+        "previsao": fc.output if fc is not None and fc.ok else None,
         "distribuicao": dist.output if dist.ok else None,
         "volatilidade": vol.output if vol.ok else None,
-        "erros": [r.error for r in (fc, dist, vol) if not r.ok],
+        "erros": [r.error for r in (fc, dist, vol) if r is not None and not r.ok],
+        "previsao_direcional": "emitida por modelo de produção calibrado" if fc is not None and fc.ok
+        else "não emitida: não há modelo validado, aprovado e calibrado em produção (regras 4 e 8)",
     }
-    if not fc.ok:
-        return _failed(ag, fc), package
-    o = fc.output
-    validated = o["status_modelo"] == "producao"
-    edge = o["prob_alta"] - o["taxa_base"]
-    ev = [f"P(alta em {d.horizon} pregões) = {o['prob_alta']:.0%} vs. taxa-base {o['taxa_base']:.0%} [modelo {o['modelo']}, {o['status_modelo']}]"]
+    ev, risks, score, conf = [], [], 0.0, 0.3
+    if package["previsao"]:
+        o = package["previsao"]
+        edge = o["prob_alta"] - o["taxa_base"]
+        ev.append(f"P(alta em {d.horizon} pregões) = {o['prob_alta']:.0%} (calibrada) vs. taxa-base {o['taxa_base']:.0%} [modelo {o['modelo']}]")
+        score, conf = float(np.clip(edge * 5, -1, 1)), 0.5
+    else:
+        ev.append("Previsão direcional não emitida: sem modelo validado, aprovado e calibrado em produção.")
     if dist.ok:
-        q = dist.output["quantis"]
-        ev.append(f"Distribuição {d.horizon}d: p05 {q['p05']:+.1%}, mediana {q['p50']:+.1%}, p95 {q['p95']:+.1%}")
+        q, cal = dist.output["quantis"], dist.output["calibracao"]
+        label = f"cobertura histórica medida: {cal['cobertura_90']:.0%} da faixa de 90%" if cal["cobertura_90"] is not None else "cobertura não medida"
+        ev.append(f"Faixas simuladas {d.horizon}d: p05 {q['p05']:+.1%}, mediana {q['p50']:+.1%}, p95 {q['p95']:+.1%} ({label})")
     if vol.ok:
         ev.append(f"Vol. prevista (GARCH, 21d): {vol.output['vol_garch_horizonte']:.0%} a.a.")
-    score = float(np.clip(edge * 5, -1, 1)) if validated else 0.0
-    conf = 0.5 if validated else 0.1
-    risks = [] if validated else ["Modelo preditivo sem validação/aprovação: probabilidade apenas informativa, excluída da síntese."]
-    return _view(ag, score, conf, "Previsões probabilísticas calculadas.", ev, risks, results), package
+    summary = "Previsões quantitativas calculadas." if package["previsao"] else "Somente faixas e volatilidade; sem previsão direcional de produção."
+    return _view(ag, score, conf, summary, ev, risks, results), package
 
 
 # --- Risco e validação --------------------------------------------------------

@@ -86,7 +86,6 @@ BULL_RULES: tuple[Rule, ...] = (
     _r("setor_top", "favoravel", "posição setorial", "sector_comparison", "pontuacao_composta", lambda v: v is not None and v >= 60, lambda v: f"Bem posicionada entre os pares ({v:.0f}/100)", 1.0),
     _r("sent_pos", "favoravel", "notícias", "news_sentiment_analysis", "escore_agregado", lambda v: v is not None and v > 0.2, lambda v: f"Noticiário com tom positivo ({v:+.2f})", 0.5),
     _r("prob_alta", "favoravel", "modelo preditivo", "price_direction_forecast", "vantagem_sobre_base", lambda v: v is not None and v > 0.05, lambda v: f"Probabilidade de alta {v*100:+.0f} p.p. acima da taxa-base", 1.5, True),
-    _r("dist_pos", "favoravel", "distribuição de retornos", "return_distribution_forecast", "prob_positivo", lambda v: v is not None and v > 0.55, lambda v: f"Distribuição simulada com {v:.0%} de chance de retorno positivo", 0.5, True),
     _r("lucro_tri_alta", "favoravel", "resultado trimestral", "earnings_analysis", "crescimento.lucro_liquido", lambda v: v is not None and v > 0.10, lambda v: f"Lucro do último trimestre {v:+.0%} vs. mesmo trimestre do ano anterior", 1.0),
     _r("sazon_pos", "favoravel", "sazonalidade", "seasonality_detection", "padroes_confirmados", lambda v: bool(v), lambda v: f"Padrões sazonais confirmados fora da amostra: {', '.join(v)}", 0.3),
 )
@@ -184,9 +183,9 @@ def auditor(ev: dict[str, Evidence], theses: list[Thesis], allow_synthetic: bool
                 elif not rule.predicate(recomputed):
                     verdict, weight = "rejeitado", 0.0
                     notes.append("evidência não sustenta a afirmação")
-                if rule.model_based and e.model_status not in (None, "producao") and e.skill_id == "price_direction_forecast":
+                if e.skill_id == "price_direction_forecast" and (e.model_status != "producao" or not e.output.get("calibrada")):
                     verdict, weight = "rejeitado", 0.0
-                    notes.append(f"modelo não validado ({e.model_status})")
+                    notes.append(f"probabilidade sem modelo de produção calibrado ({e.model_status})")
                 if verdict == "aceito" and e.synthetic:
                     if allow_synthetic:
                         notes.append("DADO SINTÉTICO (demonstração)")

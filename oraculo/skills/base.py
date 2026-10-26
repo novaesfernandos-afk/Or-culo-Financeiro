@@ -17,6 +17,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Callable
 
+from ..core.costs import COSTS
 from ..core.rules import check_news, check_series, ProvenanceError
 from ..core.types import NewsItem, Series, SourceRef, to_jsonable, utcnow
 
@@ -212,6 +213,7 @@ def execute(sk: Skill, agent_id: str, ctx: SkillContext, inputs: dict[str, Any])
     in_digest = digest(inputs)
 
     def result(status: SkillStatus, output: dict, run: SkillRun | None, error: str | None = None) -> SkillResult:
+        COSTS.record("inferencia", spec.id, time.perf_counter() - t0, ok=status in (SkillStatus.OK, SkillStatus.DEGRADED))
         return SkillResult(
             skill_id=spec.id,
             version=spec.version,

@@ -58,11 +58,13 @@ def synthesize(views: dict[str, AgentView], committee: dict | None, quant_pkg: d
         "conclusao": final,
         "justificativa": reason,
         "indice_agregado_especialistas": aggregate,
+        "nota_indice": "Média ponderada das posições qualitativas dos especialistas (-1 a +1); não é probabilidade.",
         "frentes_com_evidencia": [v.agent_id for v in fronts],
         "frentes_sem_evidencia": insufficient,
         "contradicoes": contradictions,
         "revisoes_solicitadas": revisions,
         "conclusao_comite": committee_concl,
         "integridade_quantitativa": "verificada" if integrity_ok else "VIOLADA",
-        "previsao_usada_na_sintese": bool(quant_pkg.get("previsao") and quant_pkg["previsao"]["status_modelo"] == "producao"),
+        "previsao_usada_na_sintese": bool(quant_pkg.get("previsao") and quant_pkg["previsao"]["status_modelo"] == "producao"
+                                          and quant_pkg["previsao"].get("calibrada")),
     }

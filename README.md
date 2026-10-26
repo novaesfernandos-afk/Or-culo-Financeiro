@@ -19,7 +19,7 @@ ORACULO_DEMO=1 oraculo-b3          # http://127.0.0.1:8000
 export BRAPI_TOKEN=...             # sem token, a brapi libera só alguns ativos (ex.: PETR4, VALE3, ITUB4, MGLU3)
 oraculo-b3
 
-pytest                             # 116 testes, sem acesso à rede
+pytest                             # 134 testes, sem acesso à rede
 ```
 
 | Variável | Uso |
@@ -35,12 +35,23 @@ pytest                             # 116 testes, sem acesso à rede
 
 ## Regras obrigatórias (aplicadas em código)
 
-1. **Nunca inventar notícias, cotações ou indicadores.** Uma `Series` sem fonte não pode ser criada; um dado
-   indisponível gera erro explícito (`Nenhum valor será estimado no lugar`), nunca um valor substituto.
-2. **Registrar fonte e horário dos dados.** Toda série e notícia carrega `source`, `retrieved_at` e data de
-   referência; cada resultado de skill lista suas fontes e o relatório final traz a seção "Fontes e horários".
-3. **Identificar informações atrasadas.** Limites de atraso por frequência (`core/types.py`); dados atrasados
-   degradam a skill, são exibidos no relatório e reduzem o peso das evidências no Comitê.
+| # | Regra | Como é aplicada |
+|---|-------|-----------------|
+| 1 | Nunca inventar notícias, cotações ou indicadores | `Series` exige fonte; dado indisponível gera erro, nunca valor substituto |
+| 2 | Registrar fonte e horário | Toda série, notícia e resultado de skill carrega fonte, data de referência e horário de coleta |
+| 3 | Identificar informações atrasadas | Limites por frequência; aviso no relatório e no Painel; peso reduzido no Comitê |
+| 4 | Não apresentar probabilidades sem calibração | Previsão direcional só de modelo de produção com mapa de calibração; faixas de cenário só viram probabilidade se a cobertura histórica medida bater com a nominal |
+| 5 | Não usar informações futuras em testes | Atributos só com passado, execução defasada no backtest, expurgo no walk-forward, detecção de vazamento |
+| 6 | Opiniões não são probabilidades | Pesos dos agentes exibidos como "baixa/média/alta"; índice agregado marcado como não-probabilidade |
+| 7 | Não prometer lucros | Compliance bloqueia promessas, certezas e linguagem de ordem; aviso legal obrigatório |
+| 8 | Separar experimental de produção | Análises gravadas por ambiente; Modo 7 isolado; previsões só registradas com modelo de produção |
+| 9 | Respeitar limites das fontes | Intervalo mínimo por servidor; Google Notícias desligado por padrão; erros 401/403 não são repetidos |
+| 10 | Não negociar | Não há integração com corretoras nem rotas de ordens (testado) |
+| 11 | Monitorar custos | Chamadas e processamento por dia, com orçamentos por provedor; exibidos no Painel |
+| 12 | Exibir dados insuficientes | "Evidência insuficiente" por agente e lista no Painel |
+
+Cada regra tem teste em `tests/test_regras.py`. O planejamento técnico (capacidades da plataforma, dependências,
+custos e mapeamento de pastas) está em [`docs/PLANEJAMENTO.md`](docs/PLANEJAMENTO.md).
 
 Dados sintéticos (modo demonstração) são marcados em toda a cadeia, sinalizados no relatório, rejeitados pelo
 Auditor fora da demonstração e nunca podem originar um modelo de produção.
@@ -110,6 +121,7 @@ duração e hashes de entrada/saída.
 | 5 | Simulação de cenários | Aceita perguntas em português ("E se o dólar chegasse a R$ 6,50?"); hipóteses, limitações e alerta de choque fora do histórico |
 | 6 | Análise de carteira | Concentração, VaR/CVaR, correlações, contribuição de risco, liquidez e alternativas de menor correlação; sem ordens |
 | 7 | Pesquisa e desenvolvimento | Treino, validação walk-forward com expurgo, comparação de estratégias, ciclo de aprovação |
+| — | Painel | Página inicial: Selic, IPCA e dólar com fonte e horário, ativos e carteira, alertas, análises, modelos em produção, custos do dia, saúde das fontes e dados insuficientes |
 | 8 | Auditoria | Acerto direcional, erro médio, Brier/ECE, retorno líquido de custos, por horizonte e por modelo, piores falhas |
 
 ### Fluxo de colaboração (Modo 2)

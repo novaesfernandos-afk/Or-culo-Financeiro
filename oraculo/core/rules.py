@@ -18,7 +18,32 @@ MANDATORY_RULES: list[str] = [
     "Nunca inventar notícias, cotações ou indicadores.",
     "Registrar fonte e horário dos dados.",
     "Identificar informações atrasadas.",
+    "Não apresentar probabilidades sem calibração.",
+    "Não utilizar informações futuras em testes históricos.",
+    "Não transformar opiniões dos agentes em probabilidades estatísticas.",
+    "Não prometer lucros ou precisão garantida.",
+    "Separar análises experimentais das análises de produção.",
+    "Respeitar as limitações de acesso às fontes.",
+    "Não executar negociações sem autorização específica e infraestrutura regulatória apropriada.",
+    "Monitorar os custos de APIs e inferência.",
+    "Exibir quando os dados forem insuficientes.",
 ]
+
+# Onde cada regra é aplicada no código (exibido em /api/info e verificado em tests/test_regras.py).
+RULE_ENFORCEMENT: dict[int, str] = {
+    1: "Series exige fonte; DataHub falha sem estimar; notícias sem fonte/horário são descartadas (core/types.py, data/hub.py).",
+    2: "SourceRef em toda série, notícia e resultado de skill; seção 'Fontes e horários' no relatório.",
+    3: "Limites de atraso por frequência; skills degradadas e avisos no relatório e no painel.",
+    4: "Previsão direcional só com modelo de produção calibrado (isotônica); faixas só viram probabilidade com cobertura medida.",
+    5: "Atributos só com dados passados, execução defasada no backtest, expurgo no walk-forward, detecção de vazamento.",
+    6: "Pesos dos agentes exibidos como rótulos qualitativos; índice agregado marcado como não-probabilidade.",
+    7: "compliance_review bloqueia linguagem de promessa/certeza e de ordem; aviso legal obrigatório.",
+    8: "Análises gravadas com ambiente produção/experimental; Modo 7 isolado; auditoria filtra produção por padrão.",
+    9: "Intervalo mínimo por servidor, Google Notícias desligado por padrão, erros 401/403 não repetidos.",
+    10: "Não existe integração com corretoras nem rota de ordens; testes garantem a ausência.",
+    11: "CostMonitor registra chamadas e tempo de processamento por dia e aplica orçamentos por provedor.",
+    12: "Agentes sem dados declaram 'evidência insuficiente'; painel lista dados insuficientes.",
+}
 
 
 class ProvenanceError(ValueError):

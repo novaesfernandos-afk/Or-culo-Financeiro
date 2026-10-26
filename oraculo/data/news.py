@@ -19,6 +19,7 @@ from email.utils import parsedate_to_datetime
 
 from ..core.types import NewsItem, utcnow
 from .cvm import CVMClient
+from ..core.costs import COSTS, throttle
 from .providers.base import USER_AGENT, ProviderError
 
 
@@ -131,10 +132,15 @@ class NewsCollector:
         if hit and time.time() - hit[0] < self.ttl_seconds:
             return hit[1]
         req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        t0 = time.time()
         try:
+            COSTS.check(feed.name)
+            throttle(url)
             with urllib.request.urlopen(req, timeout=20) as r:
                 data = r.read()
+            COSTS.record("dados", feed.name, time.time() - t0)
         except Exception as exc:  # noqa: BLE001
+            COSTS.record("dados", feed.name, time.time() - t0, ok=False)
             raise ProviderError(f"Feed {feed.name} indisponível: {exc}", permanent=getattr(exc, "code", None) == 404) from exc
         items = parse_rss(data, feed, utcnow())
         self._cache[url] = (time.time(), items)

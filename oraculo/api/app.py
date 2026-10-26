@@ -13,7 +13,9 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 
 from .. import __version__
 from ..agents import AGENTS, skills_of
-from ..core.rules import MANDATORY_RULES
+from ..core.costs import COSTS
+from ..core.rules import MANDATORY_RULES, RULE_ENFORCEMENT
+from .dashboard import build as build_dashboard
 from ..core.types import to_jsonable
 from ..memory.store import GovernanceError
 from ..modes import MODES, Services, run_mode
@@ -47,6 +49,20 @@ def create_app(services: Services | None = None) -> FastAPI:
                 return Response("Autenticação necessária", status_code=401, headers={"WWW-Authenticate": 'Basic realm="Oraculo B3"'})
         return await call_next(request)
 
+    @app.middleware("http")
+    async def security_headers(request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+            "connect-src 'self'; frame-ancestors 'none'"
+        )
+        if request.headers.get("x-forwarded-proto") == "https" or request.url.scheme == "https":
+            response.headers["Strict-Transport-Security"] = "max-age=31536000"
+        return response
+
     @app.get("/healthz", include_in_schema=False)
     def healthz() -> dict:
         return {"ok": True}
@@ -64,9 +80,18 @@ def create_app(services: Services | None = None) -> FastAPI:
     @app.get("/api/info")
     def info() -> dict:
         return {"versao": __version__, "modo_demonstracao": svc.demo, "regras_obrigatorias": MANDATORY_RULES,
+                "aplicacao_das_regras": RULE_ENFORCEMENT,
                 "fontes_noticias": svc.news.licenses() if svc.news else [], "cvm_ativa": svc.cvm is not None,
                 "universo_padrao": DEFAULT_UNIVERSE, "fatores_cenario": FACTORS, "tipos_evento": sorted(EVENT_SECTOR_MAP),
                 "uso_dados": svc.hub.usage()}
+
+    @app.get("/api/dashboard")
+    def dashboard() -> dict:
+        return guard(build_dashboard, svc)
+
+    @app.get("/api/costs")
+    def costs() -> dict:
+        return {"hoje": COSTS.today(), "historico": svc.memory.usage()}
 
     @app.get("/api/agents")
     def agents() -> list[dict]:

@@ -7,6 +7,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import date
 
+from ..core.costs import COSTS, BudgetExceeded
 from ..core.types import Series
 from .providers.base import DataProvider, ProviderError
 from .providers.bcb import BCBProvider
@@ -49,13 +50,20 @@ class DataHub:
                 continue
             t0 = time.time()
             try:
+                COSTS.check(p.name)
+            except BudgetExceeded as exc:
+                errors.append(f"{p.name}: {exc}")
+                continue
+            try:
                 s = p.fetch(key, start, end)
             except ProviderError as exc:
+                COSTS.record("dados", p.name, time.time() - t0, p.cost_per_call, ok=False)
                 self._record(FetchRecord(key, p.name, False, time.time() - t0, p.cost_per_call, str(exc)))
                 errors.append(f"{p.name}: {exc}")
                 all_permanent = all_permanent and exc.permanent
                 continue
             self._record(FetchRecord(key, p.name, True, time.time() - t0, p.cost_per_call))
+            COSTS.record("dados", p.name, time.time() - t0, p.cost_per_call)
             with self._lock:
                 self._cache[cache_key] = (time.time(), s)
             return s

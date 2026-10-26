@@ -8,6 +8,7 @@ import urllib.request
 from abc import ABC, abstractmethod
 from datetime import date
 
+from ...core.costs import throttle
 from ...core.types import Series
 
 USER_AGENT = "OraculoB3/0.1 (+https://github.com/novaesfernandos-afk/or-culo-financeiro)"
@@ -41,6 +42,7 @@ def http_get_json(url: str, params: dict | None = None, timeout: float = 20.0):
     if params:
         url = f"{url}?{urllib.parse.urlencode({k: v for k, v in params.items() if v is not None})}"
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
+    throttle(url)
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))

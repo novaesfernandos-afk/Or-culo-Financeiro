@@ -15,7 +15,7 @@ import numpy as np
 from ..core import agent_ids as A
 from ..core.types import utcnow
 from ..orchestration.pipeline import DIRECTION_MODEL_ID
-from ..skills._math import sma
+from ..skills._math import isotonic_fit, sma
 from ..skills.base import SkillContext, run_skill
 from ..skills.predictive import DirectionModel, direction_features, direction_labels
 from .base import Services
@@ -52,10 +52,13 @@ def train_validate(svc: Services, params: dict) -> dict:
         return {"modo": "pesquisa", "erro": wf.error, "falhas_coleta": errors}
     lab = ~np.isnan(y)
     model = DirectionModel(h, l2).fit(X[lab], y[lab])
+    oos = wf.output["previsoes_oos"]
+    th, vals = isotonic_fit(np.array([o["prob"] for o in oos]), np.array([o["y"] for o in oos]))
     model_id = DIRECTION_MODEL_ID.format(h=h)
     p = model.params()
     p["tickers"] = sorted(series)
     p["dados_sinteticos"] = synthetic
+    p["calibracao"] = {"metodo": "isotonica", "limiares": th.tolist(), "valores": vals.tolist(), "n_oos": len(oos)}
     version = utcnow().strftime("%Y%m%d%H%M%S") + "-" + hashlib.sha256(json.dumps(p, sort_keys=True).encode()).hexdigest()[:6]
     svc.memory.register_model(model_id, version, A.QUANT, p, f"Logística L2={l2}, h={h}, {n} ativo(s)")
     validation = {k: v for k, v in wf.output.items() if k != "previsoes_oos"}
@@ -65,8 +68,9 @@ def train_validate(svc: Services, params: dict) -> dict:
     if synthetic and passed:
         svc.memory.reject_model(model_id, version, A.AUDITOR, "Treinado com dados sintéticos: não elegível para produção.")
         passed = False
-    return {
+    out = {
         "modo": "pesquisa",
+        "ambiente": "experimental",
         "modelo": f"{model_id}@{version}",
         "status": svc.memory.get_model(model_id, version)["status"],
         "certificado_pelo_auditor": passed,
@@ -76,6 +80,9 @@ def train_validate(svc: Services, params: dict) -> dict:
         "dados_sinteticos": synthetic,
         "falhas_coleta": errors,
     }
+    svc.memory.save_analysis("pesquisa", ",".join(sorted(series)), {"tickers": tickers, "horizonte": h, "l2": l2},
+                             {k: v for k, v in out.items() if k != "blocos"}, [A.QUANT, A.AUDITOR], [], out["status"], environment="experimental")
+    return out
 
 
 def compare_strategies(svc: Services, params: dict) -> dict:

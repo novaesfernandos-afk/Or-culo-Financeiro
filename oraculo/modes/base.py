@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 import numpy as np
 
+from ..core.costs import COSTS
 from ..core.types import Series
 from ..data.cvm import CVMClient
 from ..data.hub import DataHub, default_hub
@@ -49,7 +50,9 @@ class Services:
         if not demo:  # fontes reais nunca são misturadas com dados sintéticos
             cvm = CVMClient() if os.environ.get("ORACULO_CVM", "1") != "0" else None
             news = NewsCollector(cvm=cvm) if os.environ.get("ORACULO_NEWS", "1") != "0" else None
-        return cls(hub=default_hub(demo), memory=MemoryStore(db if not demo else ":memory:"), demo=demo, cvm=cvm, news=news)
+        memory = MemoryStore(db if not demo else ":memory:")
+        COSTS.memory = memory  # consumo persistido (regra 11)
+        return cls(hub=default_hub(demo), memory=memory, demo=demo, cvm=cvm, news=news)
 
     def collectors(self) -> dict:
         return {"cvm": self.cvm, "news": self.news}
