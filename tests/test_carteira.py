@@ -85,3 +85,15 @@ def test_portfolio_api_import_and_remove(svc):
     v = c.get("/api/user/portfolio/valued").json()
     assert len(v["posicoes"]) == 3
     assert c.post("/api/user/portfolio/import", json={"csv": ""}).status_code == 400
+
+
+def test_dashboard_result_only_counts_priced_positions(svc):
+    from oraculo.api.dashboard import build
+
+    svc.memory.set_position("PETR4", quantity=10, avg_price=10)
+    svc.memory.set_position("ZZZZ3", quantity=10, avg_price=5)
+    svc.hub.providers[0].prefixes = ("price:PETR4", "volume:", "macro:", "factor:")
+    c = build(svc)["carteira"]
+    s = svc.hub.get("price:PETR4")
+    assert c["n_com_cotacao"] == 1
+    assert c["resultado_rs"] == pytest.approx(10 * s.last_value - 100)  # posição a custo fica fora do resultado

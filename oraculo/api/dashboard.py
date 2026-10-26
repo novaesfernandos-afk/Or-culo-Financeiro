@@ -55,6 +55,8 @@ def build(svc: Services) -> dict:
     cost = sum(p["custo"] for p in valued)
     positions = [{"ticker": p["ticker"], "valor": p["valor_usado"], "peso": p["peso"], "setor": p["setor"],
                   "resultado_pct": p["resultado_pct"], "base_valor": p["base_valor"]} for p in valued]
+    mk = [p for p in valued if p["base_valor"] == "mercado"]
+    mk_value, mk_cost = sum(p["valor_mercado"] for p in mk), sum(p["custo"] for p in mk)
     at_cost = [p["ticker"] for p in valued if p["base_valor"] != "mercado"]
     if at_cost:
         insufficient.append(f"Sem cotação, valor a custo: {', '.join(at_cost)}")
@@ -82,7 +84,15 @@ def build(svc: Services) -> dict:
         "modo_demonstracao": svc.demo,
         "macro": macro,
         "ativos": assets,
-        "carteira": {"valor_total": total, "custo_total": cost, "resultado_rs": total - cost if valued else None, "posicoes": positions},
+        "carteira": {
+            "valor_total": total,
+            "custo_total": cost,
+            # resultado só das posições com cotação: posições a custo não têm resultado conhecido
+            "resultado_rs": (mk_value - mk_cost) if mk else None,
+            "resultado_pct": (mk_value / mk_cost - 1) if mk and mk_cost else None,
+            "n_com_cotacao": len(mk),
+            "posicoes": positions,
+        },
         "alertas": mem.alert_log(10),
         "analises_recentes": mem.analyses(limit=5),
         "modelos": {"por_status": by_status, "em_producao": production},

@@ -143,7 +143,15 @@ function committeeCard(c, finalConclusion) {
 
 function errors(r) {
   const e = [...(r.falhas_coleta || [])];
-  return e.length ? `<div class="notice">Falhas de coleta (nenhum valor foi estimado no lugar): ${esc(e.join(" · "))}</div>` : "";
+  if (!e.length) return "";
+  // Agrupa recusas por falta de token/licença (HTTP 401/403) em uma linha legível
+  const token = [...new Set(e.filter(x => /HTTP 40[13]/.test(x)).map(x => (x.match(/(?:price|volume):([^:'\s]+)/) || [])[1]).filter(Boolean))];
+  const other = e.filter(x => !/HTTP 40[13]/.test(x));
+  let h = "";
+  if (token.length) h += `<p>Sem cotação para ${token.length} ativo(s), porque a brapi exige token: <b>${esc(token.join(", "))}</b>. ` +
+    `Esses ativos usam o seu custo; nenhum preço foi estimado. Configure o <code>BRAPI_TOKEN</code> para ver o valor de mercado.</p>`;
+  if (other.length) h += `<p>${other.length} outra(s) falha(s) de coleta; nenhum valor foi estimado no lugar.</p>`;
+  return `<div class="notice">${h}<details><summary>Ver detalhes técnicos</summary><pre>${esc(e.join("\n"))}</pre></details></div>`;
 }
 
 const SECTORS = ["energia_eletrica","fii_papel","fii_shopping","fii_logistica","fii_desenvolvimento","fiagro","bancos","seguros","varejo","construcao_civil","shopping","saneamento","tecnologia","educacao","petroleo_gas","aviacao","logistica","quimica","papel_celulose","mineracao","frigorificos","agronegocio","siderurgia"];
@@ -296,9 +304,11 @@ async function listPortfolio() {
   $("#result").innerHTML = '<div class="card muted">Buscando cotações…</div>';
   const r = await api("/api/user/portfolio/valued");
   const p = r.posicoes, tot = p.reduce((a, x) => a + x.valor_usado, 0), cost = p.reduce((a, x) => a + x.custo, 0);
+  const mk = p.filter(x => x.base_valor === "mercado"), mkv = mk.reduce((a, x) => a + x.valor_mercado, 0), mkc = mk.reduce((a, x) => a + x.custo, 0);
   const res = v => v == null ? "—" : `<span class="${v >= 0 ? "pos" : "neg"}">${pct(v)}</span>`;
+  const resLine = mk.length ? `Resultado dos ${mk.length} de ${p.length} ativos com cotação: ${res(mkv / mkc - 1)} (R$ ${num(mkv - mkc)})` : "Resultado: sem ativos com cotação";
   $("#result").innerHTML = `${errors(r)}<div class="card"><h3>Carteira cadastrada</h3>
-    ${p.length ? `<p>Valor: <b>R$ ${num(tot)}</b> · Custo: R$ ${num(cost)} · Resultado: ${res(cost ? tot / cost - 1 : null)}</p>` : ""}
+    ${p.length ? `<p>Valor: <b>R$ ${num(tot)}</b>${mk.length < p.length ? " (inclui ativos a custo)" : ""} · Custo: R$ ${num(cost)}</p><p>${resLine}</p>` : ""}
     ${table(p, [["ticker","Ativo"],["quantidade","Qtd.",v=>v==null?"—":num(v,0)],["preco_medio_taxas","PM c/ taxas",(v,x)=>num(v ?? x.preco_medio, 4)],
       ["preco_atual","Cotação",(v,x)=>v==null?'<span class="err">indisponível</span>':num(v)+(x.atrasado?' <span class="badge warn">atrasado</span>':"")+(x.sintetico?' <span class="badge warn">sintético</span>':"")],
       ["valor_usado","Valor (R$)",(v,x)=>num(v)+(x.base_valor!=="mercado"?` <span class="badge warn">${esc(x.base_valor)}</span>`:"")],
@@ -332,7 +342,7 @@ async function showStatic(which) {
       <div class="grid2">${d.macro.map(tile).join("")}</div>
       <div class="card"><h3>Ativos acompanhados e da carteira</h3>${d.ativos.length ? table(d.ativos, [["ticker","Ativo"],["valor","Preço",(v,r)=>r.disponivel?num(v):'<span class="err">indisponível</span>'],["variacao","Dia",v=>v==null?"":`<span class="${v>=0?"pos":"neg"}">${pct(v)}</span>`],["data","Data",(v,r)=>esc(v||"")+stale(r)+synth(r)],["fonte","Fonte"]]) : '<p class="muted">Nenhum ativo acompanhado. Adicione em Memória ou na Análise de carteira.</p>'}</div>
       <div class="grid2">
-        <div class="card"><h3>Carteira</h3>${d.carteira.posicoes.length ? `<p>Total: <b>R$ ${num(d.carteira.valor_total)}</b> · Resultado: <span class="${d.carteira.resultado_rs>=0?"pos":"neg"}">R$ ${num(d.carteira.resultado_rs)}</span></p>` + table(d.carteira.posicoes, [["ticker","Ativo"],["valor","Valor",(v,x)=>"R$ "+num(v)+(x.base_valor!=="mercado"?' <span class="badge warn">a custo</span>':"")],["resultado_pct","Resultado",v=>v==null?"—":`<span class="${v>=0?"pos":"neg"}">${pct(v)}</span>`],["peso","Peso",v=>pct(v,0)]]) : '<p class="muted">Carteira vazia.</p>'}</div>
+        <div class="card"><h3>Carteira</h3>${d.carteira.posicoes.length ? `<p>Total: <b>R$ ${num(d.carteira.valor_total)}</b>${d.carteira.n_com_cotacao < d.carteira.posicoes.length ? " (inclui ativos a custo)" : ""}</p>` + (d.carteira.n_com_cotacao ? `<p>Resultado dos ${d.carteira.n_com_cotacao} ativo(s) com cotação: <span class="${d.carteira.resultado_rs>=0?"pos":"neg"}">R$ ${num(d.carteira.resultado_rs)} (${pct(d.carteira.resultado_pct)})</span></p>` : "") + table(d.carteira.posicoes, [["ticker","Ativo"],["valor","Valor",(v,x)=>"R$ "+num(v)+(x.base_valor!=="mercado"?' <span class="badge warn">a custo</span>':"")],["resultado_pct","Resultado",v=>v==null?"—":`<span class="${v>=0?"pos":"neg"}">${pct(v)}</span>`],["peso","Peso",v=>pct(v,0)]]) : '<p class="muted">Carteira vazia.</p>'}</div>
         <div class="card"><h3>Modelos</h3><p>Em produção: ${d.modelos.em_producao.length ? esc(d.modelos.em_producao.join(", ")) : '<span class="muted">nenhum</span>'}</p>${table(Object.entries(d.modelos.por_status).map(([s,n])=>({status:s, quantidade:n})))}</div>
       </div>
       <div class="card"><h3>Alertas recentes</h3>${table(d.alertas, [["at","Data",v=>esc(v.slice(0,16).replace("T"," "))],["kind","Tipo"],["message","Mensagem"]])}</div>
