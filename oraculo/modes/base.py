@@ -91,3 +91,81 @@ def zscore(x: np.ndarray) -> np.ndarray:
     elif m.sum() >= 1:
         out[m] = 0.0
     return out
+
+
+def valued_portfolio(svc: "Services") -> tuple[list[dict], list[str], dict]:
+    """Carteira valorizada pela cotação do dia; sem cotação, usa o custo e sinaliza (nunca estima preço).
+
+    Retorna (posições, falhas de coleta, séries de preço por ticker).
+    """
+    stored = svc.memory.portfolio()
+    data, errors = svc.fetch_many([f"price:{p['ticker']}" for p in stored]) if stored else ({}, [])
+    rows = []
+    for p in stored:
+        s = data.get(f"price:{p['ticker']}")
+        qty, pm_fees = p.get("quantity"), p.get("avg_price_fees") or p.get("avg_price")
+        row = {
+            "ticker": p["ticker"], "setor": p.get("sector"), "corretora": p.get("broker"), "quantidade": qty,
+            "preco_medio": p.get("avg_price"), "preco_medio_taxas": p.get("avg_price_fees"), "custo": p["value"],
+            "preco_atual": None, "data_preco": None, "fonte_preco": None, "atrasado": None,
+            "valor_mercado": None, "resultado_rs": None, "resultado_pct": None,
+        }
+        if qty and s is not None:
+            mv = qty * s.last_value
+            row.update({"preco_atual": s.last_value, "data_preco": s.last_date.isoformat(), "fonte_preco": s.source,
+                        "atrasado": s.is_stale(), "sintetico": s.synthetic, "valor_mercado": mv, "resultado_rs": mv - p["value"],
+                        "resultado_pct": mv / p["value"] - 1 if p["value"] else None})
+            row["valor_usado"], row["base_valor"] = mv, "mercado"
+        elif qty:
+            row["valor_usado"], row["base_valor"] = p["value"], "custo (cotação indisponível)"
+        else:
+            row["valor_usado"], row["base_valor"] = p["value"], "valor informado"
+        rows.append(row)
+    total = sum(r["valor_usado"] for r in rows)
+    for r in rows:
+        r["peso"] = r["valor_usado"] / total if total else None
+    rows.sort(key=lambda r: -r["valor_usado"])
+    return rows, errors, {t.split(":", 1)[1]: s for t, s in data.items()}
+
+
+def parse_portfolio_csv(text: str) -> tuple[list[dict], list[str]]:
+    """Lê posições em CSV: ticker; quantidade; preco_medio; preco_medio_taxas; corretora; setor.
+
+    Aceita separador ';' ou ',' (com ';', a vírgula é decimal). Linhas inválidas são reportadas, não corrigidas.
+    """
+    import csv
+    import io
+
+    lines = [ln for ln in text.strip().splitlines() if ln.strip()]
+    if not lines:
+        return [], ["CSV vazio."]
+    delim = ";" if ";" in lines[0] else ","
+    reader = csv.DictReader(io.StringIO("\n".join(lines)), delimiter=delim)
+    norm = {(h or "").strip().lower(): h for h in reader.fieldnames or []}
+    if "ticker" not in norm or "quantidade" not in norm or "preco_medio" not in norm:
+        return [], ["Cabeçalho deve conter ao menos: ticker, quantidade, preco_medio."]
+
+    def num(v: str | None) -> float | None:
+        v = (v or "").strip()
+        if not v:
+            return None
+        if delim == ";":
+            v = v.replace(".", "").replace(",", ".") if "," in v else v
+        return float(v)
+
+    out, errs = [], []
+    for i, row in enumerate(reader, start=2):
+        g = lambda k: row.get(norm.get(k, ""), None)  # noqa: E731
+        t = (g("ticker") or "").strip().upper()
+        try:
+            item = {"ticker": t, "quantity": num(g("quantidade")), "avg_price": num(g("preco_medio")),
+                    "avg_price_fees": num(g("preco_medio_taxas")), "broker": (g("corretora") or "").strip() or None,
+                    "sector": (g("setor") or "").strip() or None}
+        except ValueError:
+            errs.append(f"Linha {i} ({t or 'sem ticker'}): número inválido.")
+            continue
+        if not t or item["quantity"] is None or item["avg_price"] is None:
+            errs.append(f"Linha {i} ({t or 'sem ticker'}): ticker, quantidade e preço médio são obrigatórios.")
+            continue
+        out.append(item)
+    return out, errs

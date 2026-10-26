@@ -6,13 +6,15 @@ import numpy as np
 from ..core import agent_ids as A
 from ..skills._math import align, pct_returns
 from ..skills.base import SkillContext, run_skill
-from .base import DEFAULT_UNIVERSE, Services, adv_brl
+from .base import DEFAULT_UNIVERSE, Services, adv_brl, valued_portfolio
 
 
 def run(svc: Services, params: dict) -> dict:
-    stored = svc.memory.portfolio()
-    positions = params.get("posicoes") or {p["ticker"]: p["value"] for p in stored}
-    sectors = params.get("setores") or {p["ticker"]: p["sector"] for p in stored if p.get("sector")}
+    valued, val_errors = [], []
+    if not params.get("posicoes"):
+        valued, val_errors, _ = valued_portfolio(svc)
+    positions = params.get("posicoes") or {p["ticker"]: p["valor_usado"] for p in valued}
+    sectors = params.get("setores") or {p["ticker"]: p["setor"] for p in valued if p.get("setor")}
     if not positions:
         raise ValueError("Carteira vazia: cadastre posições ou informe 'posicoes'.")
     positions = {t.upper(): float(v) for t, v in positions.items()}
@@ -47,9 +49,15 @@ def run(svc: Services, params: dict) -> dict:
         alternatives.sort(key=lambda x: x["correlacao_com_carteira"])
     return {
         "modo": "analise_carteira",
+        "posicoes": valued,
+        "resumo": {
+            "valor_total": sum(p["valor_usado"] for p in valued) if valued else sum(positions.values()),
+            "custo_total": sum(p["custo"] for p in valued) if valued else None,
+            "posicoes_a_custo": [p["ticker"] for p in valued if p["base_valor"] != "mercado"],
+        },
         "risco": risk.to_dict(),
         "alternativas_diversificacao": alternatives[:5],
         "nota": "Alternativas com menor correlação histórica são sugestões para estudo (ex.: Análise Profunda), não ordens. "
                 "O sistema não executa compras ou vendas.",
-        "falhas_coleta": errors,
+        "falhas_coleta": val_errors + errors,
     }

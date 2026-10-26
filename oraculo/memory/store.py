@@ -87,6 +87,11 @@ class MemoryStore:
             if "environment" not in cols:  # migração: produção x experimental (regra 8)
                 self._conn.execute("ALTER TABLE analyses ADD COLUMN environment TEXT DEFAULT 'producao'")
                 self._conn.commit()
+            pcols = {r[1] for r in self._conn.execute("PRAGMA table_info(portfolio)")}
+            for col, typ in (("quantity", "REAL"), ("avg_price", "REAL"), ("avg_price_fees", "REAL"), ("broker", "TEXT")):
+                if col not in pcols:  # migração: carteira por quantidade e preço médio
+                    self._conn.execute(f"ALTER TABLE portfolio ADD COLUMN {col} {typ}")
+            self._conn.commit()
 
     def _exec(self, sql: str, args: tuple = ()) -> sqlite3.Cursor:
         with self._lock:
@@ -351,11 +356,42 @@ class MemoryStore:
     def goals(self) -> list[dict]:
         return self._all("SELECT * FROM goals ORDER BY created_at")
 
-    def set_position(self, ticker: str, value: float, sector: str | None = None) -> None:
-        if value <= 0:
-            self._exec("DELETE FROM portfolio WHERE ticker=?", (ticker.upper(),))
+    def set_position(
+        self,
+        ticker: str,
+        value: float | None = None,
+        sector: str | None = None,
+        quantity: float | None = None,
+        avg_price: float | None = None,
+        avg_price_fees: float | None = None,
+        broker: str | None = None,
+    ) -> None:
+        """Grava uma posição por quantidade e preço médio (preferível) ou por valor em R$.
+
+        Com quantidade, `value` guarda o custo (quantidade x preço médio com taxas); o valor de
+        mercado é calculado com a cotação do dia. Quantidade ou valor zero remove a posição.
+        """
+        ticker = ticker.upper().strip()
+        if quantity is not None:
+            if quantity <= 0:
+                self._exec("DELETE FROM portfolio WHERE ticker=?", (ticker,))
+                return
+            if not avg_price or avg_price <= 0:
+                raise ValueError(f"{ticker}: informe o preço médio (maior que zero).")
+            if avg_price_fees is not None and avg_price_fees < avg_price:
+                raise ValueError(f"{ticker}: preço médio com taxas não pode ser menor que o preço médio sem taxas.")
+            value = quantity * (avg_price_fees or avg_price)
+        elif value is None or value <= 0:
+            self._exec("DELETE FROM portfolio WHERE ticker=?", (ticker,))
             return
-        self._exec("INSERT OR REPLACE INTO portfolio VALUES (?,?,?,?)", (ticker.upper(), value, sector, utcnow().isoformat()))
+        self._exec(
+            "INSERT OR REPLACE INTO portfolio (ticker, value, sector, updated_at, quantity, avg_price, avg_price_fees, broker) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (ticker, value, sector, utcnow().isoformat(), quantity, avg_price, avg_price_fees, broker),
+        )
+
+    def remove_position(self, ticker: str) -> None:
+        self._exec("DELETE FROM portfolio WHERE ticker=?", (ticker.upper().strip(),))
 
     def portfolio(self) -> list[dict]:
         return self._all("SELECT * FROM portfolio ORDER BY value DESC")

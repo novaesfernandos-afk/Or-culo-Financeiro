@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from ..core.costs import COSTS
 from ..core.types import Series, utcnow
-from ..modes.base import Services
+from ..modes.base import Services, valued_portfolio
 from ..orchestration.pipeline import MACRO_KEYS
 
 MACRO_LABELS = {"selic_meta": "Selic (meta)", "ipca_12m": "IPCA 12 meses", "usdbrl_ptax": "Dólar (PTAX venda)"}
@@ -49,8 +49,15 @@ def build(svc: Services) -> dict:
         else:
             assets.append({"ticker": t, "disponivel": True, **_point(s)})
 
-    total = sum(p["value"] for p in portfolio)
-    positions = [{"ticker": p["ticker"], "valor": p["value"], "peso": p["value"] / total if total else None, "setor": p["sector"]} for p in portfolio]
+    valued, val_errors, _ = valued_portfolio(svc)
+    errors += val_errors
+    total = sum(p["valor_usado"] for p in valued)
+    cost = sum(p["custo"] for p in valued)
+    positions = [{"ticker": p["ticker"], "valor": p["valor_usado"], "peso": p["peso"], "setor": p["setor"],
+                  "resultado_pct": p["resultado_pct"], "base_valor": p["base_valor"]} for p in valued]
+    at_cost = [p["ticker"] for p in valued if p["base_valor"] != "mercado"]
+    if at_cost:
+        insufficient.append(f"Sem cotação, valor a custo: {', '.join(at_cost)}")
 
     models = mem.models()
     by_status: dict[str, int] = {}
@@ -75,7 +82,7 @@ def build(svc: Services) -> dict:
         "modo_demonstracao": svc.demo,
         "macro": macro,
         "ativos": assets,
-        "carteira": {"valor_total": total, "posicoes": positions},
+        "carteira": {"valor_total": total, "custo_total": cost, "resultado_rs": total - cost if valued else None, "posicoes": positions},
         "alertas": mem.alert_log(10),
         "analises_recentes": mem.analyses(limit=5),
         "modelos": {"por_status": by_status, "em_producao": production},

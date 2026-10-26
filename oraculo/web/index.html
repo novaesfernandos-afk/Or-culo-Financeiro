@@ -117,7 +117,7 @@ function md(text) {
 function table(rows, cols) {
   if (!rows || !rows.length) return '<p class="muted">Sem dados.</p>';
   cols = cols || Object.keys(rows[0]);
-  return `<div class="scroll"><table><thead><tr>${cols.map(c => `<th>${esc(c[1] || c)}</th>`).join("")}</tr></thead><tbody>` +
+  return `<div class="scroll"><table><thead><tr>${cols.map(c => `<th>${esc(Array.isArray(c) ? c[1] : c)}</th>`).join("")}</tr></thead><tbody>` +
     rows.map(r => `<tr>${cols.map(c => { const k = Array.isArray(c) ? c[0] : c; const f = Array.isArray(c) && c[2]; const v = r[k];
       return `<td>${f ? f(v, r) : esc(typeof v === "object" && v !== null ? JSON.stringify(v) : v)}</td>`; }).join("")}</tr>`).join("") + "</tbody></table></div>";
 }
@@ -146,7 +146,7 @@ function errors(r) {
   return e.length ? `<div class="notice">Falhas de coleta (nenhum valor foi estimado no lugar): ${esc(e.join(" · "))}</div>` : "";
 }
 
-const SECTORS = ["bancos","seguros","varejo","construcao_civil","shopping","saneamento","tecnologia","educacao","petroleo_gas","aviacao","logistica","quimica","papel_celulose","mineracao","frigorificos","agronegocio","siderurgia"];
+const SECTORS = ["energia_eletrica","fii_papel","fii_shopping","fii_logistica","fii_desenvolvimento","fiagro","bancos","seguros","varejo","construcao_civil","shopping","saneamento","tecnologia","educacao","petroleo_gas","aviacao","logistica","quimica","papel_celulose","mineracao","frigorificos","agronegocio","siderurgia"];
 
 const VIEWS = {
   monitoramento: {
@@ -206,9 +206,15 @@ const VIEWS = {
   },
   analise_carteira: {
     title: "6 · Análise de carteira",
-    form: `<label>Ativo<input name="ticker" placeholder="ITUB4"></label><label>Valor (R$)<input name="valor" type="number"></label>
-      <label>Setor<select name="setor"><option value="">(não informado)</option>${SECTORS.map(s => `<option>${s}</option>`).join("")}</select></label>
-      <div class="row"><button class="btn secondary" data-acao="add" type="button">Salvar posição</button><button class="btn">Analisar carteira</button></div>`,
+    form: `<label>Ativo<input name="ticker" placeholder="ITUB4"></label><label>Quantidade<input name="quantidade" inputmode="decimal"></label>
+      <label>Preço médio<input name="preco_medio" inputmode="decimal" placeholder="39,45"></label><label>Preço médio com taxas<input name="preco_medio_taxas" inputmode="decimal"></label>
+      <label>Corretora<input name="corretora" placeholder="Clear"></label>
+      <label>Setor<input name="setor" list="setores" placeholder="bancos"><datalist id="setores">${SECTORS.map(s => `<option>${s}</option>`).join("")}</datalist></label>
+      <div class="row full"><button class="btn secondary" data-acao="add" type="button">Salvar posição</button><button class="btn">Analisar carteira</button></div>
+      <details class="full"><summary>Importar CSV</summary><p class="muted">Colunas: ticker;quantidade;preco_medio;preco_medio_taxas;corretora;setor</p>
+      <textarea name="csv" placeholder="ticker;quantidade;preco_medio;preco_medio_taxas;corretora;setor&#10;ITUB4;100;39,45;39,4618;Nubank;bancos"></textarea>
+      <label class="row"><input type="checkbox" name="substituir" style="width:auto"> Substituir a carteira atual</label>
+      <button class="btn secondary" data-acao="importar" type="button">Importar</button></details>`,
     params: f => ({}),
     render: r => { const o = r.risco.output || {}; const rk = o.risco || {};
       return `${errors(r)}<div class="card"><h3>Risco</h3><p>Volatilidade ${pct(rk.volatilidade_anual,0)} a.a. · VaR 95% 1d ${pct(rk.var95_1d_pct)} (R$ ${num(rk.var95_1d_rs)}) · N efetivo ${num(o.concentracao && o.concentracao.n_efetivo,1)}</p>
@@ -269,16 +275,41 @@ function showMode(slug) {
   });
   if (slug === "analise_carteira") {
     f.querySelector("[data-acao=add]").addEventListener("click", async () => {
-      try { await api("/api/user/portfolio", {ticker: f.ticker.value, valor: +f.valor.value, setor: f.setor.value || undefined}); await listPortfolio(); }
-      catch (e) { alert(e.message); }
+      try {
+        await api("/api/user/portfolio", {ticker: f.ticker.value, quantidade: f.quantidade.value, preco_medio: f.preco_medio.value,
+          preco_medio_taxas: f.preco_medio_taxas.value || undefined, corretora: f.corretora.value || undefined, setor: f.setor.value || undefined});
+        await listPortfolio();
+      } catch (e) { alert(e.message); }
+    });
+    f.querySelector("[data-acao=importar]").addEventListener("click", async () => {
+      try {
+        const r = await api("/api/user/portfolio/import", {csv: f.csv.value, substituir: f.substituir.checked});
+        alert(`${r.importados.length} posição(ões) importada(s).` + (r.erros.length ? "\nErros:\n" + r.erros.join("\n") : ""));
+        await listPortfolio();
+      } catch (e) { alert(e.message); }
     });
     listPortfolio();
   }
 }
 
 async function listPortfolio() {
-  const u = await api("/api/user");
-  $("#result").innerHTML = `<div class="card"><h3>Carteira cadastrada</h3>${table(u.carteira, [["ticker","Ativo"],["value","Valor (R$)",v=>num(v)],["sector","Setor"]])}</div>`;
+  $("#result").innerHTML = '<div class="card muted">Buscando cotações…</div>';
+  const r = await api("/api/user/portfolio/valued");
+  const p = r.posicoes, tot = p.reduce((a, x) => a + x.valor_usado, 0), cost = p.reduce((a, x) => a + x.custo, 0);
+  const res = v => v == null ? "—" : `<span class="${v >= 0 ? "pos" : "neg"}">${pct(v)}</span>`;
+  $("#result").innerHTML = `${errors(r)}<div class="card"><h3>Carteira cadastrada</h3>
+    ${p.length ? `<p>Valor: <b>R$ ${num(tot)}</b> · Custo: R$ ${num(cost)} · Resultado: ${res(cost ? tot / cost - 1 : null)}</p>` : ""}
+    ${table(p, [["ticker","Ativo"],["quantidade","Qtd.",v=>v==null?"—":num(v,0)],["preco_medio_taxas","PM c/ taxas",(v,x)=>num(v ?? x.preco_medio, 4)],
+      ["preco_atual","Cotação",(v,x)=>v==null?'<span class="err">indisponível</span>':num(v)+(x.atrasado?' <span class="badge warn">atrasado</span>':"")+(x.sintetico?' <span class="badge warn">sintético</span>':"")],
+      ["valor_usado","Valor (R$)",(v,x)=>num(v)+(x.base_valor!=="mercado"?` <span class="badge warn">${esc(x.base_valor)}</span>`:"")],
+      ["resultado_pct","Resultado",res],["peso","Peso",v=>pct(v,0)],["setor","Setor"],["corretora","Corretora"],
+      ["ticker","",v=>`<button class="btn secondary" onclick="removePosition('${esc(v)}')">Remover</button>`]])}
+    <p class="muted">Valor pela cotação do dia; sem cotação, o app usa o custo e sinaliza, sem estimar preço.</p></div>`;
+}
+
+async function removePosition(t) {
+  if (!confirm(`Remover ${t} da carteira?`)) return;
+  try { await api(`/api/user/portfolio/${encodeURIComponent(t)}`, null, "DELETE"); await listPortfolio(); } catch (e) { alert(e.message); }
 }
 
 let MODES = [];
@@ -301,7 +332,7 @@ async function showStatic(which) {
       <div class="grid2">${d.macro.map(tile).join("")}</div>
       <div class="card"><h3>Ativos acompanhados e da carteira</h3>${d.ativos.length ? table(d.ativos, [["ticker","Ativo"],["valor","Preço",(v,r)=>r.disponivel?num(v):'<span class="err">indisponível</span>'],["variacao","Dia",v=>v==null?"":`<span class="${v>=0?"pos":"neg"}">${pct(v)}</span>`],["data","Data",(v,r)=>esc(v||"")+stale(r)+synth(r)],["fonte","Fonte"]]) : '<p class="muted">Nenhum ativo acompanhado. Adicione em Memória ou na Análise de carteira.</p>'}</div>
       <div class="grid2">
-        <div class="card"><h3>Carteira</h3>${d.carteira.posicoes.length ? `<p>Total: <b>R$ ${num(d.carteira.valor_total)}</b></p>` + table(d.carteira.posicoes, [["ticker","Ativo"],["valor","Valor",v=>"R$ "+num(v)],["peso","Peso",v=>pct(v,0)]]) : '<p class="muted">Carteira vazia.</p>'}</div>
+        <div class="card"><h3>Carteira</h3>${d.carteira.posicoes.length ? `<p>Total: <b>R$ ${num(d.carteira.valor_total)}</b> · Resultado: <span class="${d.carteira.resultado_rs>=0?"pos":"neg"}">R$ ${num(d.carteira.resultado_rs)}</span></p>` + table(d.carteira.posicoes, [["ticker","Ativo"],["valor","Valor",(v,x)=>"R$ "+num(v)+(x.base_valor!=="mercado"?' <span class="badge warn">a custo</span>':"")],["resultado_pct","Resultado",v=>v==null?"—":`<span class="${v>=0?"pos":"neg"}">${pct(v)}</span>`],["peso","Peso",v=>pct(v,0)]]) : '<p class="muted">Carteira vazia.</p>'}</div>
         <div class="card"><h3>Modelos</h3><p>Em produção: ${d.modelos.em_producao.length ? esc(d.modelos.em_producao.join(", ")) : '<span class="muted">nenhum</span>'}</p>${table(Object.entries(d.modelos.por_status).map(([s,n])=>({status:s, quantidade:n})))}</div>
       </div>
       <div class="card"><h3>Alertas recentes</h3>${table(d.alertas, [["at","Data",v=>esc(v.slice(0,16).replace("T"," "))],["kind","Tipo"],["message","Mensagem"]])}</div>
