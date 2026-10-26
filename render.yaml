@@ -1,0 +1,22 @@
+# Blueprint do Render (https://render.com/docs/blueprint-spec).
+# No plano gratuito o disco é temporário: memória (análises, carteira, modelos) e cache da CVM
+# se perdem quando o serviço reinicia. Para persistir, use um plano pago e descomente "disk".
+services:
+  - type: web
+    name: oraculo-b3
+    runtime: docker
+    plan: free
+    healthCheckPath: /healthz
+    envVars:
+      - key: ORACULO_USER
+        value: oraculo
+      - key: ORACULO_PASSWORD
+        generateValue: true   # senha gerada pelo Render; veja em Environment
+      - key: BRAPI_TOKEN
+        sync: false           # informe no painel do Render (opcional)
+      - key: ORACULO_NEWS_FEEDS
+        value: infomoney,infomoney_empresa,valor,valor_empresas
+    # disk:
+    #   name: oraculo-data
+    #   mountPath: /data
+    #   sizeGB: 1

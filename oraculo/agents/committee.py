@@ -87,6 +87,7 @@ BULL_RULES: tuple[Rule, ...] = (
     _r("sent_pos", "favoravel", "notícias", "news_sentiment_analysis", "escore_agregado", lambda v: v is not None and v > 0.2, lambda v: f"Noticiário com tom positivo ({v:+.2f})", 0.5),
     _r("prob_alta", "favoravel", "modelo preditivo", "price_direction_forecast", "vantagem_sobre_base", lambda v: v is not None and v > 0.05, lambda v: f"Probabilidade de alta {v*100:+.0f} p.p. acima da taxa-base", 1.5, True),
     _r("dist_pos", "favoravel", "distribuição de retornos", "return_distribution_forecast", "prob_positivo", lambda v: v is not None and v > 0.55, lambda v: f"Distribuição simulada com {v:.0%} de chance de retorno positivo", 0.5, True),
+    _r("lucro_tri_alta", "favoravel", "resultado trimestral", "earnings_analysis", "crescimento.lucro_liquido", lambda v: v is not None and v > 0.10, lambda v: f"Lucro do último trimestre {v:+.0%} vs. mesmo trimestre do ano anterior", 1.0),
     _r("sazon_pos", "favoravel", "sazonalidade", "seasonality_detection", "padroes_confirmados", lambda v: bool(v), lambda v: f"Padrões sazonais confirmados fora da amostra: {', '.join(v)}", 0.3),
 )
 
@@ -98,6 +99,7 @@ BEAR_RULES: tuple[Rule, ...] = (
     _r("cauda", "contraria", "risco", "return_distribution_forecast", "quantis.p05", lambda v: v is not None and v < -0.10, lambda v: f"Cenário adverso (p05) de {v:.0%} no horizonte", 0.75, True),
     _r("alavancagem", "contraria", "fundamentos", "fundamental_analysis", "indicadores.divida_liquida_ebitda", lambda v: v is not None and v > 3.0, lambda v: f"Alavancagem elevada ({v:.1f}x dívida líquida/EBITDA)", 1.5),
     _r("accruals", "contraria", "fundamentos", "fundamental_analysis", "indicadores.accruals", lambda v: v is not None and v > 0.10, lambda v: f"Lucro pouco convertido em caixa (accruals {v:.0%})", 1.0),
+    _r("lucro_tri_queda", "contraria", "resultado trimestral", "earnings_analysis", "crescimento.lucro_liquido", lambda v: v is not None and v < -0.10, lambda v: f"Lucro do último trimestre {v:+.0%} vs. mesmo trimestre do ano anterior", 1.0),
     _r("caro", "contraria", "valuation", "valuation_engine", "upside_dcf", lambda v: v is not None and v < -0.15, lambda v: f"Valuation por DCF {v:+.0%} vs. preço atual", 1.5),
     _r("setor_fraco", "contraria", "posição setorial", "sector_comparison", "pontuacao_composta", lambda v: v is not None and v <= 40, lambda v: f"Posição fraca entre os pares ({v:.0f}/100)", 1.0),
     _r("sent_neg", "contraria", "notícias", "news_sentiment_analysis", "escore_agregado", lambda v: v is not None and v < -0.2, lambda v: f"Noticiário com tom negativo ({v:+.2f})", 0.5),

@@ -42,7 +42,8 @@ def news_from_dicts(items: list[dict]) -> list[NewsItem]:
     return out
 
 
-def collect(d: sp.Dossier, hub: DataHub, orch: Orchestrator, commodity_keys: list[str]) -> None:
+def collect(d: sp.Dossier, hub: DataHub, orch: Orchestrator, commodity_keys: list[str], collectors: dict | None = None,
+            news_days: int = 14) -> None:
     """Etapa 1 - o Orquestrador coleta os dados em paralelo."""
     t = d.ticker
 
@@ -56,14 +57,35 @@ def collect(d: sp.Dossier, hub: DataHub, orch: Orchestrator, commodity_keys: lis
     ]
     tasks += [Task(f"macro:{k}", A.ORQUESTRADOR, fetch(f"macro:{k}"), retries=2, optional=True, description=f"Macro {k}") for k in MACRO_KEYS]
     tasks += [Task(f"cmd:{k}", A.ORQUESTRADOR, fetch(k), retries=1, optional=True, description=f"Commodity {k}") for k in commodity_keys]
+    c = collectors or {}
+    if c.get("cvm") is not None and not d.financials:
+        tasks.append(Task("cvm_anual", A.ORQUESTRADOR, lambda _d: c["cvm"].annual_financials(t), retries=1, optional=True,
+                          description="Demonstrações anuais (CVM DFP)"))
+        tasks.append(Task("cvm_trimestre", A.ORQUESTRADOR, lambda _d: c["cvm"].latest_quarter(t), retries=1, optional=True,
+                          description="Último trimestre (CVM ITR)"))
+    if c.get("news") is not None and not d.news:
+        tasks.append(Task("noticias", A.NOTICIAS, lambda _d: c["news"].collect(t, days=news_days), retries=1, optional=True,
+                          description="Fatos relevantes (CVM) e notícias (RSS)"))
     res = orch.run(tasks)
+    if res.get("cvm_anual"):
+        fa = res["cvm_anual"]
+        d.financials, d.financials_source = fa["financials"], fa["financials_source"]
+        d.financial_institution, d.shares_outstanding = fa["instituicao_financeira"], fa["acoes_em_circulacao"]
+    if res.get("cvm_trimestre"):
+        d.quarterly = res["cvm_trimestre"]
+    if res.get("noticias"):
+        d.news = res["noticias"]
+        if c["news"].errors:
+            d.collection_errors += [f"noticias: {e}" for e in c["news"].errors]
     d.prices, d.volume, d.benchmark = res.get("preco"), res.get("volume"), res.get("benchmark")
     d.macro = {k: res[f"macro:{k}"] for k in MACRO_KEYS if res.get(f"macro:{k}") is not None}
     d.commodities = {k.split(":", 1)[1]: res[f"cmd:{k}"] for k in commodity_keys if res.get(f"cmd:{k}") is not None}
-    d.collection_errors = [f"{r['id']}: {r['error']}" for r in orch.log() if r["status"] != "ok"]
+    d.collection_errors = [f"{r['id']}: {r['error']}" for r in orch.log() if r["status"] != "ok"] + d.collection_errors
 
 
-def deep_analysis(ticker: str, hub: DataHub, memory: MemoryStore, options: dict | None = None) -> dict[str, Any]:
+def deep_analysis(
+    ticker: str, hub: DataHub, memory: MemoryStore, options: dict | None = None, collectors: dict | None = None
+) -> dict[str, Any]:
     o = options or {}
     ticker = ticker.upper().strip()
     ctx = SkillContext(hub=hub, memory=memory)
@@ -76,7 +98,7 @@ def deep_analysis(ticker: str, hub: DataHub, memory: MemoryStore, options: dict 
 
     # Etapa 1 - Coleta
     orch = Orchestrator(hub=hub)
-    collect(d, hub, orch, o.get("commodities", []))
+    collect(d, hub, orch, o.get("commodities", []), collectors, int(o.get("dias_noticias", 14)))
     stages["1_coleta"] = {"tarefas": orch.log(), "resumo": orch.summary}
     if d.prices is None:
         return {"ticker": ticker, "conclusao": "evidência insuficiente", "erro": "Cotações indisponíveis; nenhuma análise realizada sem dados reais.",

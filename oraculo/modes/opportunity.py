@@ -8,6 +8,7 @@ from __future__ import annotations
 import numpy as np
 
 from ..core import agent_ids as A
+from ..data.providers.base import ProviderError
 from ..skills.base import SkillContext, run_skill
 from .base import DEFAULT_UNIVERSE, Services, adv_brl, zscore
 
@@ -18,8 +19,9 @@ FACTOR_DOC = {
     "resiliencia": "Drawdown atual em relação ao máximo de 252 pregões (menor queda pontua mais).",
     "qualidade": "Pontuação fundamentalista 0-6 (somente se demonstrações forem fornecidas).",
     "valuation": "Upside do DCF (somente se premissas forem fornecidas).",
+    "rendimento_lucro": "Lucro dos últimos 12 meses / valor de mercado (inverso do P/L), do último DFP na CVM.",
 }
-DEFAULT_WEIGHTS = {"momentum_12_1": 1.0, "baixa_volatilidade": 1.0, "tendencia": 0.5, "resiliencia": 0.5, "qualidade": 1.0, "valuation": 1.0}
+DEFAULT_WEIGHTS = {"momentum_12_1": 1.0, "baixa_volatilidade": 1.0, "tendencia": 0.5, "resiliencia": 0.5, "qualidade": 1.0, "valuation": 1.0, "rendimento_lucro": 1.0}
 
 
 def price_factors(p: np.ndarray) -> dict[str, float]:
@@ -64,13 +66,30 @@ def run(svc: Services, params: dict) -> dict:
             excluded.append({"ticker": t, "motivo": f"liquidez R$ {adv/1e6:.1f} mi/dia abaixo do mínimo"})
             continue
         f = price_factors(p.values)
+        fund_source = None
+        if t not in fundamentals and svc.cvm is not None and params.get("usar_fundamentos_cvm", True):
+            try:
+                fa = svc.cvm.annual_financials(t)
+                mcap = p.last_value * fa["acoes_em_circulacao"] if fa["acoes_em_circulacao"] else None
+                fr = run_skill("fundamental_analysis", A.FUNDAMENTALISTA, ctx, financials=fa["financials"],
+                               financials_source=fa["financials_source"], market_cap=mcap,
+                               financial_institution=fa["instituicao_financeira"])
+                if fr.ok:
+                    f["qualidade"] = float(fr.output["pontuacao_qualidade"])
+                    pl = (fr.output.get("multiplos") or {}).get("p_l")
+                    if pl:
+                        f["rendimento_lucro"] = 1 / pl
+                    fund_source = fa["financials_source"]
+            except ProviderError as exc:
+                errors.append(f"CVM {t}: {exc}")
         if t in fundamentals:
             fr = run_skill("fundamental_analysis", A.FUNDAMENTALISTA, ctx, **fundamentals[t])
             if fr.ok:
                 f["qualidade"] = float(fr.output["pontuacao_qualidade"])
             if fundamentals[t].get("upside_dcf") is not None:
                 f["valuation"] = float(fundamentals[t]["upside_dcf"])
-        eligible.append({"ticker": t, "liquidez_brl": adv, "fatores": f, "sintetico": p.synthetic, "data": p.last_date.isoformat()})
+        eligible.append({"ticker": t, "liquidez_brl": adv, "fatores": f, "sintetico": p.synthetic, "data": p.last_date.isoformat(),
+                         "fonte_fundamentos": fund_source})
 
     if not eligible:
         return {"modo": "cacador_oportunidades", "ranking": [], "excluidos": excluded, "falhas_coleta": errors}

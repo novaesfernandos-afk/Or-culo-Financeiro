@@ -162,6 +162,8 @@ class CVMClient:
                 keep = code in codes
                 keep |= kind == "DRE" and code.count(".") == 1 and "lucro/prejuízo consolidado do período" in desc
                 keep |= kind == "DRE" and code == "3.01" and "intermediação" in desc
+                keep |= kind == "DRE" and code.startswith("3.99.01.")
+                keep |= kind == "DRE" and "atribuído a sócios da empresa controladora" in desc
                 keep |= kind == "DFC_MI" and code.startswith("6.01.01") and "deprecia" in desc
                 keep |= kind == "DFC_MI" and code.startswith("6.02.") and "aquisi" in desc and ("imobilizado" in desc or "intangív" in desc)
                 if keep:
@@ -182,6 +184,23 @@ class CVMClient:
             return None
         total = float(r["QT_ACAO_TOTAL_CAP_INTEGR"] or 0) - float(r["QT_ACAO_TOTAL_TESOURO"] or 0)
         return total or None
+
+    @staticmethod
+    def _resolve_shares(raw: float | None, ni_controller: float | None, eps: float | None) -> tuple[float | None, str]:
+        """A CVM recebe a quantidade de ações em unidades ou em milhares, conforme a empresa.
+
+        A escala é confirmada pelo lucro por ação do próprio balanço (lucro da controladora / LPA).
+        Sem confirmação, a quantidade é descartada (múltiplos não são calculados).
+        """
+        if not raw:
+            return None, "quantidade de ações não informada"
+        if not (ni_controller and eps):
+            return None, "sem LPA para confirmar a escala da quantidade de ações"
+        implied = ni_controller / eps
+        for cand, label in ((raw, "unidades"), (raw * 1000, "milhares")):
+            if 1 / 1.5 <= cand / implied <= 1.5:
+                return cand, f"confirmada pelo LPA (informada em {label})"
+        return None, f"quantidade informada ({raw:,.0f}) incompatível com lucro/LPA ({implied:,.0f})"
 
     @staticmethod
     def _latest_version(rows: list[dict]) -> list[dict]:
@@ -229,6 +248,10 @@ class CVMClient:
                     target["lucro_liquido"] = self._value(r)
                 if kind == "DRE" and code == "3.01" and "intermediação" in desc:
                     financial_institution = True
+                if last and kind == "DRE" and code.startswith("3.99.01.") and float(r["VL_CONTA"]) > 0 and "lpa" not in cur:
+                    cur["lpa"] = float(r["VL_CONTA"])  # lucro básico por ação (R$, sem escala)
+                if last and kind == "DRE" and "atribuído a sócios da empresa controladora" in desc:
+                    cur["lucro_controladora"] = self._value(r)
                 if last and kind == "DFC_MI" and "deprecia" in desc and code.startswith("6.01.01"):
                     da += self._value(r)
                 if last and kind == "DFC_MI" and code.startswith("6.02."):
@@ -249,7 +272,7 @@ class CVMClient:
             "receita_anterior": prev.get("receita"),
             "lucro_anterior": prev.get("lucro_liquido"),
         }
-        shares = self._shares(doc, year, info["cnpj"])
+        shares, shares_note = self._resolve_shares(self._shares(doc, year, info["cnpj"]), cur.get("lucro_controladora"), cur.get("lpa"))
         return {
             "ticker": ticker.upper(),
             "empresa": ref["DENOM_CIA"],
@@ -258,6 +281,7 @@ class CVMClient:
             "versao": ref["VERSAO"],
             "instituicao_financeira": financial_institution,
             "acoes_em_circulacao": shares,
+            "acoes_verificacao": shares_note,
             "financials": {k: v for k, v in fin.items() if v is not None},
             "financials_source": (
                 f"{SOURCE} - {doc} {year} consolidado, {ref['DENOM_CIA']} (ref. {ref['DT_REFER']}, versão {ref['VERSAO']}; "
@@ -277,20 +301,23 @@ class CVMClient:
             if not rows:
                 continue
             ref = rows[0]["DT_REFER"]
-            quarter_start = (date.fromisoformat(ref).replace(day=1) - timedelta(days=62)).replace(day=1).isoformat()
+            ref_d = date.fromisoformat(ref)
+            q_start = date(ref_d.year, ref_d.month - 2, 1)
+            quarter_start, year_ago_start = q_start.isoformat(), q_start.replace(year=q_start.year - 1).isoformat()
             act: dict[str, float] = {}
             ago: dict[str, float] = {}
+            bank = any(r["CD_CONTA"] == "3.01" and "intermediação" in r["DS_CONTA"].lower() for r in rows)
             for r in rows:
                 ini = r.get("DT_INI_EXERC", "")
                 is_last = r["ORDEM_EXERC"].upper().startswith("Ú")
                 three_months = (date.fromisoformat(r["DT_FIM_EXERC"]) - date.fromisoformat(ini)).days < 100
-                if not three_months or (is_last and ini != quarter_start):
+                if not three_months or ini != (quarter_start if is_last else year_ago_start):
                     continue
                 tgt = act if is_last else ago
                 code, desc = r["CD_CONTA"], r["DS_CONTA"].lower()
                 if code == "3.01":
                     tgt["receita"] = self._value(r)
-                elif code == "3.05" and "intermediação" not in desc:
+                elif code == "3.05" and not bank:
                     tgt["ebit"] = self._value(r)
                 elif "lucro/prejuízo consolidado do período" in desc:
                     tgt["lucro_liquido"] = self._value(r)

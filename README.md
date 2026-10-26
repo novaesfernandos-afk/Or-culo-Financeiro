@@ -19,10 +19,19 @@ ORACULO_DEMO=1 oraculo-b3          # http://127.0.0.1:8000
 export BRAPI_TOKEN=...             # sem token, a brapi libera só alguns ativos (ex.: PETR4, VALE3, ITUB4, MGLU3)
 oraculo-b3
 
-pytest                             # 104 testes
+pytest                             # 116 testes, sem acesso à rede
 ```
 
-Variáveis: `ORACULO_DEMO`, `ORACULO_DB` (padrão `data/oraculo.db`), `BRAPI_TOKEN`, `HOST`, `PORT`.
+| Variável | Uso |
+|----------|-----|
+| `ORACULO_DEMO=1` | Modo demonstração (somente dados sintéticos; CVM e notícias desligadas) |
+| `ORACULO_DB` | Banco SQLite (padrão `data/oraculo.db`) |
+| `ORACULO_CACHE` | Cache dos arquivos da CVM (padrão `data/cache`) |
+| `BRAPI_TOKEN` | Token da brapi.dev |
+| `ORACULO_CVM=0` / `ORACULO_NEWS=0` | Desliga a CVM ou o coletor de notícias |
+| `ORACULO_NEWS_FEEDS` | Feeds RSS (padrão `infomoney,infomoney_empresa,valor,valor_empresas`; `google` é opcional) |
+| `ORACULO_USER` / `ORACULO_PASSWORD` | Usuário e senha de acesso; **obrigatório** para expor fora da máquina local |
+| `HOST` / `PORT` | Endereço do servidor |
 
 ## Regras obrigatórias (aplicadas em código)
 
@@ -145,15 +154,41 @@ versão anterior é arquivada). Parâmetros de versões não experimentais não 
 |-------|-----|------------|
 | Banco Central (SGS) | Selic meta, Selic diária, IPCA mensal e 12 meses, dólar PTAX | API pública |
 | brapi.dev | Cotações e volume diários (até 5 anos) | Token necessário para a maioria dos ativos e para `^BVSP` |
+| CVM - Dados Abertos | Cadastro (ticker → CNPJ), fatos relevantes e comunicados (IPE), balanço anual (DFP) e trimestral (ITR) | Pública; baixada 1x/dia para o cache |
+| InfoMoney e Valor (RSS) | Notícias por empresa (título, link, fonte e horário) | Uso sujeito aos termos de cada veículo |
+| Google Notícias (RSS) | Busca por empresa | **Desligado por padrão**: o feed só permite uso pessoal e não comercial |
 | CSV do usuário | Qualquer série licenciada (commodities, curva DI, indicadores globais) | Fonte declarada obrigatória |
 | Sintético | Demonstração e testes | Sempre marcado como sintético |
 
-Notícias, demonstrações financeiras, pares setoriais e eventos geopolíticos podem ser enviados na requisição
-do Modo 2 (`noticias`, `financials` + `financials_source`, `valuation`, `pares`, `eventos_geopoliticos`).
+Na Análise Profunda, o Orquestrador busca automaticamente na CVM o último balanço anual consolidado e o último
+trimestre (comparado ao mesmo trimestre do ano anterior), além dos fatos relevantes e notícias dos últimos 14 dias.
+Com o preço atual, o Analista Fundamentalista calcula P/L, P/VP, EV/EBITDA e rendimento do fluxo de caixa livre.
+Detalhes que evitam números errados:
+
+- A quantidade de ações vem da CVM em unidades ou em milhares, conforme a empresa. A escala é confirmada pelo lucro
+  por ação do próprio balanço; sem confirmação, os múltiplos não são calculados.
+- Bancos e seguradoras são identificados pelo plano de contas; critérios de dívida, EBITDA e caixa não se aplicam a eles.
+- Notícias de veículos gerais só entram se citarem a empresa (nomes ambíguos como "Vale" e "B3" exigem menção no título).
+- Fatos relevantes da CVM são fonte oficial (confirmada). Matérias com "dizem fontes" ou "estaria" são classificadas como rumor.
+
+Dados próprios podem substituir as fontes automáticas na requisição do Modo 2 (`noticias`, `financials` +
+`financials_source`, `valuation`, `pares`, `eventos_geopoliticos`).
+
+## Publicar online (Render)
+
+O repositório inclui `Dockerfile` e `render.yaml`:
+
+1. Crie uma conta em https://render.com e conecte o GitHub.
+2. Em **New → Blueprint**, escolha este repositório. O Render lê o `render.yaml`.
+3. Ao final, em **Environment**, copie a senha gerada em `ORACULO_PASSWORD` (usuário: `oraculo`) e, se tiver,
+   informe o `BRAPI_TOKEN`.
+4. Acesse a URL `https://oraculo-b3-....onrender.com`; o navegador pede usuário e senha.
+
+No plano gratuito o serviço "dorme" após inatividade e o disco é temporário: análises, carteira e modelos se perdem
+ao reiniciar. Para persistir, use um plano pago com o bloco `disk` do `render.yaml`. O container roda sem privilégios
+de administrador e se recusa a iniciar exposto sem senha.
 
 ## Próximos passos sugeridos
 
-- Coletor de notícias (RSS de fontes profissionais e fatos relevantes da CVM) alimentando o Modo 1.
-- Ingestão automática de DFP/ITR da CVM para o Analista Fundamentalista.
 - Fontes licenciadas para commodities, curva DI, fluxo estrangeiro e indicadores globais.
 - Narrativa opcional via LLM no Comunicador, sempre sujeita à revisão de compliance.

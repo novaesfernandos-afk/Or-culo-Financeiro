@@ -34,6 +34,9 @@ class Dossier:
     geo_events: list[dict] = field(default_factory=list)
     financials: dict | None = None
     financials_source: str | None = None
+    financial_institution: bool = False
+    shares_outstanding: float | None = None
+    quarterly: dict | None = None
     valuation_inputs: dict | None = None
     peers: dict | None = None
     sector: str | None = None
@@ -163,17 +166,31 @@ def fundamentalista(d: Dossier) -> AgentView:
     ag = A.FUNDAMENTALISTA
     if not d.financials or not d.financials_source:
         return _insufficient(ag, "Demonstrações financeiras não fornecidas (CVM/RI).")
-    r = d.run("fundamental_analysis", ag, financials=d.financials, financials_source=d.financials_source)
+    mcap = d.prices.last_value * d.shares_outstanding if (d.prices is not None and d.shares_outstanding) else None
+    r = d.run("fundamental_analysis", ag, financials=d.financials, financials_source=d.financials_source, market_cap=mcap,
+              financial_institution=d.financial_institution)
     if not r.ok:
         return _failed(ag, r)
     q = r.output["pontuacao_qualidade"]
     ind = r.output["indicadores"]
-    ev = [f"Pontuação de qualidade {q}/6"] + [
+    ev = [f"Pontuação de qualidade {q}/6" + (" (critérios de instituição financeira)" if d.financial_institution else "")] + [
         f"{k}: {v:.2%}" if k.startswith(("margem", "ro", "cresc")) else f"{k}: {v:.2f}"
         for k, v in ind.items() if v is not None and k in ("roe", "roic", "margem_ebitda", "divida_liquida_ebitda", "crescimento_receita")
     ]
+    mult = r.output.get("multiplos") or {}
+    labels = {"p_l": "P/L", "p_vp": "P/VP", "ev_ebitda": "EV/EBITDA"}
+    shown = [f"{labels[k]} {mult[k]:.1f}x" for k in labels if mult.get(k) is not None]
+    if shown:
+        ev.append("Múltiplos (preço atual x último balanço): " + ", ".join(shown))
     score = (q - 3) / 3
     results = [r]
+    if d.quarterly:
+        e = d.run("earnings_analysis", ag, actual=d.quarterly["actual"], year_ago=d.quarterly["year_ago"], source=d.quarterly["source"])
+        if e.ok:
+            results.append(e)
+            g = e.output["crescimento"]
+            parts = [f"{k} {v:+.0%}" for k, v in g.items() if v is not None]
+            ev.append(f"Trimestre encerrado em {d.quarterly['trimestre_encerrado_em']} vs. ano anterior: {', '.join(parts)}")
     if d.valuation_inputs:
         price = d.prices.last_value if d.prices is not None else None
         v = d.run("valuation_engine", ag, price=price, **d.valuation_inputs)

@@ -4,8 +4,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from fastapi import Body, FastAPI, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+import base64
+import os
+import secrets
+
+from fastapi import Body, FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 from .. import __version__
 from ..agents import AGENTS, skills_of
@@ -24,6 +28,28 @@ def create_app(services: Services | None = None) -> FastAPI:
     svc = services or Services.create()
     app = FastAPI(title="Oráculo B3", version=__version__)
     app.state.svc = svc
+    password = os.environ.get("ORACULO_PASSWORD")
+    username = os.environ.get("ORACULO_USER", "oraculo")
+
+    @app.middleware("http")
+    async def basic_auth(request: Request, call_next):
+        """Com ORACULO_PASSWORD definido (obrigatório em implantação pública), exige usuário e senha."""
+        if password and request.url.path != "/healthz":
+            ok = False
+            header = request.headers.get("authorization", "")
+            if header.lower().startswith("basic "):
+                try:
+                    user, _, pwd = base64.b64decode(header[6:]).decode("utf-8").partition(":")
+                    ok = secrets.compare_digest(user, username) and secrets.compare_digest(pwd, password)
+                except (ValueError, UnicodeDecodeError):
+                    ok = False
+            if not ok:
+                return Response("Autenticação necessária", status_code=401, headers={"WWW-Authenticate": 'Basic realm="Oraculo B3"'})
+        return await call_next(request)
+
+    @app.get("/healthz", include_in_schema=False)
+    def healthz() -> dict:
+        return {"ok": True}
 
     def guard(fn, *a, **kw) -> Any:
         try:
@@ -38,6 +64,7 @@ def create_app(services: Services | None = None) -> FastAPI:
     @app.get("/api/info")
     def info() -> dict:
         return {"versao": __version__, "modo_demonstracao": svc.demo, "regras_obrigatorias": MANDATORY_RULES,
+                "fontes_noticias": svc.news.licenses() if svc.news else [], "cvm_ativa": svc.cvm is not None,
                 "universo_padrao": DEFAULT_UNIVERSE, "fatores_cenario": FACTORS, "tipos_evento": sorted(EVENT_SECTOR_MAP),
                 "uso_dados": svc.hub.usage()}
 
@@ -139,11 +166,12 @@ def create_app(services: Services | None = None) -> FastAPI:
 
 
 def main() -> None:
-    import os
-
     import uvicorn
 
-    uvicorn.run(create_app(), host=os.environ.get("HOST", "127.0.0.1"), port=int(os.environ.get("PORT", "8000")))
+    host = os.environ.get("HOST", "127.0.0.1")
+    if host not in ("127.0.0.1", "localhost") and not os.environ.get("ORACULO_PASSWORD"):
+        raise SystemExit("Defina ORACULO_PASSWORD antes de expor o Oráculo B3 fora da máquina local.")
+    uvicorn.run(create_app(), host=host, port=int(os.environ.get("PORT", "8000")))
 
 
 if __name__ == "__main__":

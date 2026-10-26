@@ -18,7 +18,7 @@ def _div(a: float | None, b: float | None) -> float | None:
 @skill(
     id="fundamental_analysis",
     name="Análise fundamentalista",
-    version="1.0.0",
+    version="1.1.0",
     category="mercado",
     objective="Calcular rentabilidade, margens, endividamento, crescimento e qualidade do lucro a partir das demonstrações.",
     authorized_agents=[A.FUNDAMENTALISTA, A.SETORIAL, A.CARTEIRA, A.CIIO],
@@ -26,6 +26,8 @@ def _div(a: float | None, b: float | None) -> float | None:
         "financials": "dict com receita, ebitda, ebit, lucro_liquido, patrimonio_liquido, ativo_total, divida_bruta, caixa, "
         "fco (fluxo de caixa operacional), capex, despesa_financeira, aliquota_ir, receita_anterior, lucro_anterior",
         "financials_source": "fonte (ex.: CVM/ITR, release de RI) e data de referência",
+        "market_cap": "valor de mercado em R$ (preço x ações em circulação), opcional, para múltiplos",
+        "financial_institution": "True para bancos/seguradoras: critérios de alavancagem e caixa não se aplicam",
     },
     required_inputs=["financials", "financials_source"],
     tools=["numpy"],
@@ -33,13 +35,16 @@ def _div(a: float | None, b: float | None) -> float | None:
         "Calcular margens (bruta/EBITDA/líquida), ROE, ROIC, dívida líquida/EBITDA e cobertura de juros.",
         "Crescimento de receita e lucro vs. período anterior.",
         "Conversão de caixa (FCO/lucro) e accruals ((lucro-FCO)/ativo).",
-        "Pontuar qualidade 0-6 com regras explícitas.",
+        "Pontuar qualidade 0-6 com regras explícitas (proporcional aos critérios aplicáveis ao tipo de empresa).",
+        "Com valor de mercado: P/L, P/VP, EV/EBITDA e rendimento do fluxo de caixa livre.",
     ],
     validation=["Receita positiva.", "Indicadores finitos."],
     output_schema={"indicadores": "dict", "pontuacao_qualidade": "int (0-6)", "alertas": "list"},
     failure_handling="Indicadores sem dados ficam None; não há preenchimento por estimativa.",
 )
-def fundamental_analysis(run: SkillRun, financials: dict, financials_source: str) -> dict:
+def fundamental_analysis(
+    run: SkillRun, financials: dict, financials_source: str, market_cap: float | None = None, financial_institution: bool = False
+) -> dict:
     from ..core.types import SourceRef, utcnow
 
     run.cite(SourceRef(financials_source, utcnow()))
@@ -80,6 +85,23 @@ def fundamental_analysis(run: SkillRun, financials: dict, financials_source: str
         "alavancagem_controlada": ind["divida_liquida_ebitda"] is not None and ind["divida_liquida_ebitda"] < 2.5,
         "receita_crescendo": (ind["crescimento_receita"] or 0) > 0,
     }
+    if financial_institution:
+        # balanço de instituição financeira: dívida, EBITDA e fluxo de caixa operacional não são comparáveis
+        for k in ("fco_positivo", "fco_maior_que_lucro", "alavancagem_controlada"):
+            checks.pop(k)
+        for k in ("margem_ebitda", "margem_ebit", "roic", "divida_liquida", "divida_liquida_ebitda", "cobertura_juros",
+                  "fluxo_caixa_livre", "conversao_caixa", "accruals"):
+            ind[k] = None
+    multiples = {}
+    if market_cap:
+        ev = market_cap + (ind["divida_liquida"] or 0)
+        multiples = {
+            "valor_mercado": market_cap,
+            "p_l": _div(market_cap, f.get("lucro_liquido")) if (f.get("lucro_liquido") or 0) > 0 else None,
+            "p_vp": _div(market_cap, f.get("patrimonio_liquido")),
+            "ev_ebitda": _div(ev, f.get("ebitda")) if not financial_institution and (f.get("ebitda") or 0) > 0 else None,
+            "rendimento_fcl": _div(ind["fluxo_caixa_livre"], market_cap),
+        }
     alerts = []
     if ind["divida_liquida_ebitda"] is not None and ind["divida_liquida_ebitda"] > 3.5:
         alerts.append(f"Alavancagem elevada: dívida líquida/EBITDA = {ind['divida_liquida_ebitda']:.2f}x")
@@ -89,8 +111,10 @@ def fundamental_analysis(run: SkillRun, financials: dict, financials_source: str
         alerts.append("Accruals elevados: lucro pouco suportado por caixa.")
     missing = [k for k, v in ind.items() if v is None]
     if missing:
-        run.warn(f"Indicadores sem dados: {', '.join(missing)}", degrade=False)
-    return {"indicadores": ind, "criterios": checks, "pontuacao_qualidade": int(sum(checks.values())), "alertas": alerts}
+        run.warn(f"Indicadores sem dados ou não aplicáveis: {', '.join(missing)}", degrade=False)
+    score = round(6 * sum(checks.values()) / len(checks))
+    return {"indicadores": ind, "criterios": checks, "pontuacao_qualidade": int(score), "alertas": alerts, "multiplos": multiples,
+            "instituicao_financeira": financial_institution}
 
 
 @skill(
